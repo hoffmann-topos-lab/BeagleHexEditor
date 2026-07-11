@@ -1,0 +1,14 @@
+[package]
+name = "hexed-helper"
+description = "Privileged helper daemon (F-47): raw /dev I/O for the GUI over a Unix socket. Minimal and auditable."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "hexhelper"
+path = "src/main.rs"
+
+[dependencies]
+hexed-helper-proto = { path = "../helper-proto" }
