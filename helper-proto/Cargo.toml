@@ -1,0 +1,13 @@
+[package]
+name = "hexed-helper-proto"
+description = "Wire protocol shared by the privileged helper (F-47) and its client. Zero dependencies."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "hexed_helper_proto"
+path = "src/lib.rs"
+
+[dependencies]
