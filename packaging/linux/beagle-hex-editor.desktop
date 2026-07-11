@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Beagle Hex Editor
+GenericName=Hex Editor
+Comment=Edit files of any size, byte by byte
+Exec=hexed-gui %F
+Icon=beagle-hex-editor
+Terminal=false
+Categories=Development;Utility;
+MimeType=application/octet-stream;
+Keywords=hex;binary;editor;
+StartupNotify=true
+StartupWMClass=beagle-hex-editor
