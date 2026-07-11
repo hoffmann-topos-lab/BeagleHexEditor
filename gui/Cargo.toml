@@ -1,0 +1,16 @@
+[package]
+name = "hexed-gui"
+description = "Graphical interface of the hex editor (egui). A thin layer over the core."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "hexed-gui"
+path = "src/main.rs"
+
+[dependencies]
+hexed-core.workspace = true
+eframe = "0.32"
+rfd = "0.15"
