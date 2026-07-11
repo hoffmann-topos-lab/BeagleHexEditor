@@ -1,0 +1,18 @@
+[package]
+name = "hexed-core"
+description = "Core of the hex editor: piece table, data sources, search. No UI dependencies."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+hexed-helper-proto.workspace = true
+blake3 = "1"
+md-5 = "0.10"
+sha1 = "0.10"
+sha2 = "0.10"
+tempfile = "3"
+
+[dev-dependencies]
+proptest = "1"
