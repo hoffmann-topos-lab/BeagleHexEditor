@@ -1,0 +1,12 @@
+/target
+**/*.rs.bk
+*.pdb
+.DS_Store
+
+# Bundle macOS gerado por packaging/macos/bundle.sh (artefato de build)
+/packaging/macos/*.app
+
+# Working documents, not part of the published project
+CLAUDE.md
+funcionalidades.md
+testes-manuais.md
