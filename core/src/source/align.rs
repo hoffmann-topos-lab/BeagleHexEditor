@@ -37,6 +37,12 @@ pub(crate) fn read_into(
 
 /// Writes `data` at `offset`, preserving the untouched bytes of the boundary
 /// sectors via read-modify-write.
+///
+/// The read-modify-write cycle is **not atomic**: two concurrent writers
+/// touching the same sector can lose one of the updates (both read, then both
+/// write). Today every write path is single-threaded (worker threads only
+/// read), so this cannot happen; if concurrent writes are ever introduced,
+/// the whole cycle needs a lock per source, not per request.
 pub(crate) fn write_at(
     offset: u64,
     data: &[u8],

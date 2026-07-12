@@ -119,6 +119,12 @@ impl Document {
             ));
         }
 
+        // The tempfile is created 0600; saving over an existing file must not
+        // silently tighten its permissions.
+        if let Ok(meta) = std::fs::metadata(path) {
+            tmp.as_file().set_permissions(meta.permissions())?;
+        }
+
         tmp.as_file().sync_all()?;
         tmp.persist(path).map_err(|e| Error::new(ErrorKind::Io, e.to_string()))?;
         self.saved_depth = self.undo.len();

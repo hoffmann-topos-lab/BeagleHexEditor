@@ -288,6 +288,23 @@ fn save_as_writes_the_edited_content() {
 }
 
 #[test]
+fn save_as_preserves_the_permissions_of_an_existing_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("output.bin");
+    std::fs::write(&out, b"old").unwrap();
+    std::fs::set_permissions(&out, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    let mut d = doc(b"new content");
+    d.save_as(&out).unwrap();
+
+    let mode = std::fs::metadata(&out).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o644, "the tempfile's 0600 must not replace the file's mode");
+    assert_eq!(std::fs::read(&out).unwrap(), b"new content");
+}
+
+#[test]
 fn backup_copies_an_existing_file_and_skips_a_missing_one() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("data.bin");

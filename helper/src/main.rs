@@ -27,6 +27,10 @@ use std::path::Path;
 use hexed_helper_proto::{MAX_CHUNK, Request, Response, WireError};
 
 // The only two things std does not give us: the peer's credentials, and chown.
+//
+// `getpeereid` is BSD/macOS API — glibc does not provide it, so on Linux this
+// fails at link time (fail closed, nothing weaker ships by accident). The
+// Linux port must replace it with `getsockopt(SO_PEERCRED)`; do NOT stub it.
 unsafe extern "C" {
     fn getpeereid(fd: i32, euid: *mut u32, egid: *mut u32) -> i32;
     fn chown(path: *const i8, owner: u32, group: u32) -> i32;
@@ -105,6 +109,11 @@ struct Handle {
     writable: bool,
 }
 
+/// Cap on simultaneously open handles per connection. A hex editor opens a
+/// handful of devices; without a cap, a looping client could exhaust the
+/// root daemon's file descriptors.
+const MAX_HANDLES: usize = 64;
+
 fn handle_client(mut stream: UnixStream, allowed_uid: u32) -> std::io::Result<()> {
     if peer_uid(&stream) != Some(allowed_uid) {
         // Do not even reply — a wrong peer learns nothing.
@@ -133,11 +142,19 @@ fn dispatch(req: Request, handles: &mut Vec<Option<Handle>>) -> Response {
                     Ok(s) => s,
                     Err(e) => return err(&e),
                 };
-                let id = handles.len() as u32;
-                handles.push(Some(handle));
+                // Reuse a closed slot before growing the table (capped).
+                let id = match handles.iter().position(Option::is_none) {
+                    Some(i) => i,
+                    None if handles.len() < MAX_HANDLES => {
+                        handles.push(None);
+                        handles.len() - 1
+                    }
+                    None => return not_allowed("too many open handles"),
+                };
+                handles[id] = Some(handle);
                 // block_size = 0: the client already knows it (from enumeration)
                 // and supplies it. Keeping ioctl out of the daemon keeps it minimal.
-                Response::Opened { handle: id, size: dev_size, block_size: 0 }
+                Response::Opened { handle: id as u32, size: dev_size, block_size: 0 }
             }
             Err(e) => e,
         },
@@ -288,6 +305,30 @@ mod tests {
         // Canonicalization collapses the `..`, landing outside /dev/.
         let r = resolve_dev_path("/dev/../etc/hosts");
         assert!(is_not_allowed(&r), "{r:?}");
+    }
+
+    #[test]
+    fn the_handle_table_is_capped_and_reuses_closed_slots() {
+        let mut handles = Vec::new();
+        let mut open = |handles: &mut Vec<Option<Handle>>| {
+            dispatch(Request::Open { path: "/dev/null".into(), writable: false }, handles)
+        };
+        for _ in 0..MAX_HANDLES {
+            assert!(matches!(open(&mut handles), Response::Opened { .. }));
+        }
+        let denied = open(&mut handles);
+        assert!(
+            matches!(denied, Response::Error { kind: WireError::NotAllowed, .. }),
+            "{denied:?}"
+        );
+
+        // Closing frees a slot; the next open reuses it instead of growing.
+        assert!(matches!(dispatch(Request::Close { handle: 3 }, &mut handles), Response::Closed));
+        match open(&mut handles) {
+            Response::Opened { handle, .. } => assert_eq!(handle, 3, "closed slot reused"),
+            r => panic!("expected Opened, got {r:?}"),
+        }
+        assert_eq!(handles.len(), MAX_HANDLES, "the table never grows past the cap");
     }
 
     #[test]

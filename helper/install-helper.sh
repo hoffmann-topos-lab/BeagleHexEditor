@@ -72,6 +72,9 @@ EOF
     echo "loaded LaunchDaemon $PLIST"
     ;;
 Linux)
+    # NOTE: the daemon's peer-UID gate uses getpeereid(), which glibc does not
+    # provide — the binary does not link on Linux yet. The Linux port must
+    # switch it to getsockopt(SO_PEERCRED) first; this unit is ready for then.
     UNIT="/etc/systemd/system/hexhelper.service"
     cat > "$UNIT" <<EOF
 [Unit]
