@@ -176,24 +176,29 @@ pub fn format(sc: &KeyboardShortcut) -> String {
     parts.join("+")
 }
 
-/// A compact glyph form for menu hints, e.g. `⌘O`, `⇧⌘S`, `F3`.
+/// A compact form for menu hints, e.g. `⌘ + O`, `Shift + ⌘ + S`, `F3`.
+///
+/// `⌘` is the only Mac modifier glyph covered by egui's bundled proportional
+/// fonts — `⌃`/`⌥`/`⇧` (U+2303/U+2325/U+21E7) render as tofu boxes, so those
+/// modifiers are spelled out.
 pub fn symbol(sc: &KeyboardShortcut) -> String {
     let m = normalize(sc.modifiers);
-    let mut s = String::new();
+    let key = sc.logical_key.name().to_uppercase();
+    let mut parts: Vec<&str> = Vec::new();
     if m.ctrl {
-        s.push('⌃');
+        parts.push("Ctrl");
     }
     if m.alt {
-        s.push('⌥');
+        parts.push("Alt");
     }
     if m.shift {
-        s.push('⇧');
+        parts.push("Shift");
     }
     if m.command {
-        s.push('⌘');
+        parts.push("⌘");
     }
-    s.push_str(&sc.logical_key.name().to_uppercase());
-    s
+    parts.push(&key);
+    parts.join(" + ")
 }
 
 pub fn parse(s: &str) -> Option<KeyboardShortcut> {
@@ -229,6 +234,16 @@ mod tests {
         assert_eq!(format(&Action::FindNext.default_shortcut()), "f3");
         assert_eq!(format(&Action::FindPrev.default_shortcut()), "shift+f3");
         assert_eq!(format(&Action::NextDiff.default_shortcut()), "f6");
+    }
+
+    #[test]
+    fn symbol_separates_tokens_and_avoids_tofu_glyphs() {
+        assert_eq!(symbol(&Action::Open.default_shortcut()), "⌘ + O");
+        assert_eq!(symbol(&Action::SaveAs.default_shortcut()), "Shift + ⌘ + S");
+        assert_eq!(symbol(&Action::FindPrev.default_shortcut()), "Shift + F3");
+        assert_eq!(symbol(&Action::NextDiff.default_shortcut()), "F6");
+        let ctrl_alt = KeyboardShortcut::new(Modifiers::CTRL.plus(Modifiers::ALT), Key::K);
+        assert_eq!(symbol(&ctrl_alt), "Ctrl + Alt + K");
     }
 
     #[test]
