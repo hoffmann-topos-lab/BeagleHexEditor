@@ -130,6 +130,72 @@ impl Document {
         self.saved_depth = self.undo.len();
         Ok(())
     }
+
+    // ---- F-05 in-place / F-51 ----
+
+    /// The contiguous document ranges changed this session — but **only when
+    /// every edit was an overwrite** (nothing inserted or deleted shifted the
+    /// layout). `None` means the document was resized and must go through
+    /// [`save_as`](Self::save_as).
+    ///
+    /// It reads straight off the piece table: after an overwrite the original
+    /// pieces stay at their identity offset (`piece.offset == document position`)
+    /// and the replaced bytes are `Added` pieces — exactly the dirty ranges. Any
+    /// insert or delete breaks that identity, which is how a resize is caught.
+    pub fn inplace_dirty_ranges(&self) -> Option<Vec<Range<u64>>> {
+        let mut dirty: Vec<Range<u64>> = Vec::new();
+        let mut doc_pos = 0u64;
+        for p in self.table.pieces() {
+            match p.store {
+                StoreId::Original if p.offset != doc_pos => return None,
+                StoreId::Original => {}
+                StoreId::Added => {
+                    let r = doc_pos..doc_pos + p.len;
+                    match dirty.last_mut() {
+                        Some(prev) if prev.end == r.start => prev.end = r.end,
+                        _ => dirty.push(r),
+                    }
+                }
+            }
+            doc_pos += p.len;
+        }
+        (doc_pos == self.source.size()).then_some(dirty)
+    }
+
+    /// True when [`save_in_place`](Self::save_in_place) can be used (the document
+    /// was not resized). Disks and process memory (`resizable == false`) can
+    /// *only* be saved this way.
+    pub fn can_save_in_place(&self) -> bool {
+        self.inplace_dirty_ranges().is_some()
+    }
+
+    /// F-05/F-51 — Writes only the changed bytes back to `path` with `pwrite`,
+    /// leaving everything else untouched. Fast on huge files (cost is the dirty
+    /// bytes, not the file size).
+    ///
+    /// **Not atomic**: a failure part-way leaves the file partially updated, so
+    /// callers that value the previous version should back it up first (F-65).
+    /// Returns the number of bytes written. Errors when the document was resized.
+    pub fn save_in_place(&mut self, path: impl AsRef<Path>) -> Result<u64> {
+        use std::os::unix::fs::FileExt;
+        let Some(dirty) = self.inplace_dirty_ranges() else {
+            return Err(Error::new(
+                ErrorKind::NotResizable,
+                "the document changed size; use Save As (atomic full rewrite) instead",
+            ));
+        };
+        let file = std::fs::OpenOptions::new().write(true).open(path)?;
+        let mut written = 0u64;
+        for r in &dirty {
+            // Dirty ranges are `Added` bytes — always readable, never unreadable.
+            let read = self.read(r.start, (r.end - r.start) as usize);
+            file.write_all_at(&read.data, r.start)?;
+            written += read.data.len() as u64;
+        }
+        file.sync_all()?;
+        self.saved_depth = self.undo.len();
+        Ok(written)
+    }
 }
 
 /// F-65 — Copies `path` to `path.bak` before it is overwritten, so a save that

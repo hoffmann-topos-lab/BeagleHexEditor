@@ -339,12 +339,13 @@ mod linux {
         let bytes = s.as_bytes();
         let mut i = 0;
         while i < bytes.len() {
-            if bytes[i] == b'\\' && i + 3 < bytes.len() {
-                if let Ok(code) = u8::from_str_radix(&s[i + 1..i + 4], 8) {
-                    out.push(code as char);
-                    i += 4;
-                    continue;
-                }
+            if bytes[i] == b'\\'
+                && i + 3 < bytes.len()
+                && let Ok(code) = u8::from_str_radix(&s[i + 1..i + 4], 8)
+            {
+                out.push(code as char);
+                i += 4;
+                continue;
             }
             out.push(bytes[i] as char);
             i += 1;

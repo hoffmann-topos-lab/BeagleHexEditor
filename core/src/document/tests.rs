@@ -45,6 +45,57 @@ fn overwrite_at_the_end_extends_the_file() {
 }
 
 #[test]
+fn inplace_dirty_ranges_are_the_overwritten_spans() {
+    let mut d = doc(b"AAAAAAAA");
+    assert_eq!(d.inplace_dirty_ranges(), Some(vec![]), "no edits, nothing dirty");
+    d.overwrite(2, b"XX").unwrap();
+    d.overwrite(6, b"Y").unwrap();
+    assert_eq!(d.inplace_dirty_ranges(), Some(vec![2..4, 6..7]));
+    // A delete resizes the layout: no longer an in-place candidate.
+    d.delete(0, 1).unwrap();
+    assert_eq!(d.inplace_dirty_ranges(), None);
+}
+
+#[test]
+fn a_growing_edit_is_not_an_inplace_candidate() {
+    let mut d = doc(b"abcd");
+    d.insert(0, b"Z").unwrap();
+    assert!(!d.can_save_in_place());
+    // Overwriting past the end also grows it.
+    let mut d = doc(b"abc");
+    d.overwrite(2, b"XYZ").unwrap();
+    assert!(!d.can_save_in_place());
+}
+
+#[test]
+fn save_in_place_writes_only_the_dirty_bytes() {
+    use std::io::Write;
+    let mut tmp = tempfile::NamedTempFile::new().unwrap();
+    tmp.write_all(b"AAAAAAAA").unwrap();
+    tmp.flush().unwrap();
+    let path = tmp.path().to_path_buf();
+
+    let mut d = Document::open(&path, false).unwrap();
+    d.overwrite(2, b"XX").unwrap();
+    assert!(d.can_save_in_place());
+    assert_eq!(d.save_in_place(&path).unwrap(), 2, "only the 2 dirty bytes written");
+
+    assert_eq!(std::fs::read(&path).unwrap(), b"AAXXAAAA");
+    assert!(!d.dirty(), "the document is clean after saving");
+}
+
+#[test]
+fn save_in_place_refuses_after_a_resize() {
+    use std::io::Write;
+    let mut tmp = tempfile::NamedTempFile::new().unwrap();
+    tmp.write_all(b"abcd").unwrap();
+    tmp.flush().unwrap();
+    let mut d = Document::open(tmp.path(), false).unwrap();
+    d.insert(0, b"Z").unwrap();
+    assert_eq!(d.save_in_place(tmp.path()).unwrap_err().kind, ErrorKind::NotResizable);
+}
+
+#[test]
 fn overwrite_is_a_single_undo() {
     let mut d = doc(b"hello");
     d.overwrite(1, b"appy").unwrap();

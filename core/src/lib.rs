@@ -27,6 +27,12 @@
 //!   provenance tree; ELF is parsed, PE/Mach-O detected (Fase 9, em progresso).
 //! - **F-79/F-80** `recipe` — CyberChef-style transformations composed into a
 //!   pipeline over a selection (Fase 12).
+//! - **F-81** `funcdiff` — function-aware binary diff (Fase 13): match by symbol
+//!   then by normalized-instruction fingerprint.
+//! - **F-84** `dump` — memory-image inspector (Fase 15): ELF core parsing;
+//!   detection of raw / Mach-O core / Windows crashdump / hiberfil.
+//! - **F-82** `trace` — dynamic syscall tracer (Fase 14), **Linux only** (D5);
+//!   macOS reports that plainly instead of failing silently.
 
 pub mod add_buffer;
 pub mod bookmarks;
@@ -35,16 +41,19 @@ pub mod charset;
 pub mod compare;
 pub mod disasm;
 pub mod disks;
+pub mod dump;
 pub mod display;
 pub mod document;
 pub mod error;
 pub mod export;
 pub mod format;
+pub mod funcdiff;
 pub mod hash;
 pub mod hexfile;
 pub mod identify;
 pub mod inspector;
 pub mod magic;
+pub mod patch;
 pub mod piece_table;
 pub mod progress;
 pub mod recipe;
@@ -54,6 +63,7 @@ pub mod shred;
 pub mod source;
 pub mod stats;
 pub mod strings;
+pub mod trace;
 pub mod transform;
 
 pub use bookmarks::{Bookmark, Bookmarks};
@@ -63,15 +73,18 @@ pub use disasm::{
 };
 pub use disks::DiskInfo;
 pub use display::OffsetBase;
+pub use dump::{DumpKind, DumpReport, MemRegion, Module, ProcInfo};
 pub use document::{Document, FillPattern, ReadResult, backup_file};
 pub use error::{Error, ErrorKind, Result};
 pub use export::{ExportFormat, ExportJob, ExportOptions};
 pub use format::{Arch, BinaryInfo, Bits, ExtraEntry, Format, Import, Reloc, Section, Symbol};
+pub use funcdiff::{FuncChange, FuncDiffReport, FuncRef, Renamed};
 pub use hexfile::RecordFormat;
 pub use identify::{
     Detection, IdKind, IdentifyReport, Indicator, PackReport, SectionEntropy, Severity,
 };
 pub use inspector::{Endian, FieldKind};
+pub use patch::{PeChecksum, pe_checksum};
 pub use piece_table::{Piece, PieceTable, StoreId};
 pub use progress::Progress;
 pub use recipe::{AesMode, Base64Variant, Base85Variant, Op, Recipe, RecipeJob};
