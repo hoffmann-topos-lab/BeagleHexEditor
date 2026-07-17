@@ -213,6 +213,11 @@ impl App {
                 });
                 // Phase 6 — F-57/F-58.
                 ui.menu_button("Tools", |ui| {
+                    // Fase 12 (F-80): CyberChef-style transform pipeline.
+                    if ui.button("Recipe (transform)…").clicked() {
+                        self.recipe.open = true;
+                    }
+                    ui.separator();
                     if ui.button("Split file into parts…").clicked() {
                         self.tools.split_open = true;
                     }
@@ -229,6 +234,8 @@ impl App {
                     ui.menu_button("View", |ui| {
                         ui.checkbox(&mut tab.inspector.open, "Data Inspector");
                         ui.checkbox(&mut self.bookmarks_open, "Bookmarks");
+                        // F-72: the executable structure tree.
+                        ui.checkbox(&mut self.structure.open, "Structure (executable)");
                         ui.separator();
                         ui.menu_button("Bytes per line", |ui| {
                             for n in COLS_CHOICES {

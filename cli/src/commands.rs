@@ -2,10 +2,15 @@
 //! all share.
 
 pub(crate) mod analyze;
+pub(crate) mod detect;
 pub(crate) mod device;
+pub(crate) mod disasm;
 pub(crate) mod edit;
+pub(crate) mod format;
 pub(crate) mod io;
+pub(crate) mod recipe;
 pub(crate) mod search;
+pub(crate) mod trace;
 pub(crate) mod view;
 
 use hexed_core::{Document, Error, ErrorKind, disks};

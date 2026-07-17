@@ -6,8 +6,10 @@ mod app;
 mod config;
 mod hexview;
 mod inspector;
+mod recipe;
 mod search;
 mod shortcuts;
+mod structure;
 mod tools;
 mod util;
 

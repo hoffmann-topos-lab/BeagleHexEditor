@@ -128,6 +128,8 @@ impl App {
         }
         self.tools.drive(&mut self.tabs, ctx);
         self.tools.windows(ctx, &mut self.tabs, self.active);
+        // Fase 12 (F-80): the transform-recipe window.
+        self.recipe.window(ctx, &mut self.tabs, self.active);
         self.compare_mode(ctx, actions.next_diff);
     }
 
@@ -206,9 +208,12 @@ impl App {
         }
     }
 
-    /// F-23 bookmarks (left) and F-16/F-17 Data Inspector (right), both before
-    /// the central panel.
+    /// F-72 structure tree (left), F-23 bookmarks (left) and F-16/F-17 Data
+    /// Inspector (right), all before the central panel.
     fn side_panels_ui(&mut self, ctx: &egui::Context) {
+        // F-72: the executable's provenance tree.
+        self.structure.panel(ctx, &mut self.tabs, self.active);
+
         if self.bookmarks_open
             && let Some(tab) = self.tabs.get_mut(self.active)
         {

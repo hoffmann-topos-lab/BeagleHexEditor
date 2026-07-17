@@ -310,7 +310,7 @@ mod tests {
     #[test]
     fn the_handle_table_is_capped_and_reuses_closed_slots() {
         let mut handles = Vec::new();
-        let mut open = |handles: &mut Vec<Option<Handle>>| {
+        let open = |handles: &mut Vec<Option<Handle>>| {
             dispatch(Request::Open { path: "/dev/null".into(), writable: false }, handles)
         };
         for _ in 0..MAX_HANDLES {

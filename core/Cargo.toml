@@ -13,6 +13,21 @@ md-5 = "0.10"
 sha1 = "0.10"
 sha2 = "0.10"
 tempfile = "3"
+# F-76 (D8): pure-Rust disassembler, isolated behind `disasm/`. default-features
+# off drops the `colors` (crossterm) and `use-serde` trees; `fmt` gives Display.
+yaxpeax-arch = { version = "0.3", default-features = false, features = ["std"] }
+yaxpeax-x86 = { version = "2", default-features = false, features = ["std", "fmt"] }
+yaxpeax-arm = { version = "0.4", default-features = false, features = ["std", "fmt"] }
+# F-79 (D8): the Fase 12 transforms. Symmetric ciphers via RustCrypto (same
+# precedent as the hashes — hand-rolling forensic crypto was rejected) and
+# DEFLATE/zlib via miniz_oxide; the gzip framing is wrapped by hand. Pure Rust,
+# no FFI. `alloc` on the block-mode crates enables the *_padded_vec helpers.
+aes = "0.9"
+cbc = { version = "0.2", features = ["alloc"] }
+ctr = { version = "0.10", features = ["alloc"] }
+ecb = { version = "0.2", features = ["alloc"] }
+rc4 = "0.2"
+miniz_oxide = "0.9"
 
 [dev-dependencies]
 proptest = "1"

@@ -12,7 +12,7 @@ use std::process::ExitCode;
 
 use hexed_core::hexfile::RecordFormat;
 
-use commands::{analyze, device, edit, io, search, view};
+use commands::{analyze, detect, device, disasm, edit, format, io, recipe, search, trace, view};
 
 const USAGE: &str = "\
 hexed — hex editor (headless frontend)
@@ -21,6 +21,7 @@ USAGE:
     hexed len <file>
     hexed dump <file> [offset] [length] [--charset <name>] [--base hex|dec|oct]
     hexed patch <input> <offset> <hex> -o <output>
+    hexed poke <file> <offset> <hex> --yes           (in-place overwrite; F-05/F-51)
     hexed inspect <file> [offset] [--be] [--charset <name>]
     hexed fill <input> <offset> <length> <hex> -o <output>
     hexed fill <input> <offset> <length> --random [--seed <n>] -o <output>
@@ -31,9 +32,24 @@ USAGE:
     hexed replace <input> --text <s> --with <new-s> -o <output> [--all] [options]
     hexed hash <file> [--algos md5,sha256,crc32,…|--all] [--start/--end]
     hexed strings <file> [--min <n>] [--enc utf8,utf16le,utf16be] [--limit <n>]
+    hexed strings <file> --stack [--min <n>]         (recover stack strings F-78)
     hexed stats <file> [--full] [--block <n>] [--start/--end]
     hexed magic <file> [--scan] [--limit <n>]
     hexed diff <a> <b> [--limit <n>]
+    hexed bindiff <a> <b> [--all] [--limit <n>]      (function-aware diff; F-81)
+    hexed memscan <file> [--limit <n>]               (inspect a memory dump; F-84)
+    hexed trace [--] <program> [args…]               (syscall tracer; F-82, Linux only)
+    hexed elf <file> [views]                         (ELF: readelf/nm)
+    hexed pe <file> [views]                          (PE: dumpbin/PE-bear)
+    hexed pe <file> --checksum [-o <fixed>]          (recompute PE checksum; F-85)
+    hexed macho <file> [views]                       (Mach-O: otool)
+    hexed struct <file>                              (auto-detect: field tree)
+    hexed detect <file> [--entropy] [--indicators] [--all]
+                                     (identify toolchain/packer; packing; IOCs)
+    hexed disasm <file> [--section <name>] [--linear] [--from <addr>] [--limit <n>]
+                                     (disassemble x86/x64/ARM64; recursive default)
+    hexed recipe <file> \"<step> | <step> | …\" [--start/--end] [--cap <size>] [-o <out>]
+                                     (CyberChef-style transform pipeline; F-79/F-80)
     hexed bookmarks <file>
     hexed bookmarks <file> add <offset> <length> <name> [description]
     hexed bookmarks <file> rm <index>
@@ -62,6 +78,15 @@ CHARSETS: ascii, cp1252, cp437, ebcdic, macroman, utf8, utf16le, utf16be.
 ALGOS: md5, sha1, sha256, sha512, blake3, crc16, crc32, crc64, adler32, sum, xor8.
 EXPORT FORMATS: hex (default), c, java, csharp, pascal, python — byte literals;
     txt, html, rtf, tex — a report with offset + hex + text (F-31).
+FORMAT VIEWS (elf/pe/macho): default is summary + sections + libraries; add
+    --symbols, --imports, --relocs, --tree, or --all.
+RECIPE STEPS (recipe, `|`-separated, applied left to right):
+    to-base64[url]/from-base64[url], to-base32/from-base32, to-base85/from-base85,
+    to-z85/from-z85, to-hex/from-hex, to-url/from-url;
+    xor <hex>, add/sub <n>, rol/ror <n>, not, reverse;
+    deflate/inflate, zlib/unzlib, gzip/gunzip;
+    aes-enc/aes-dec <cbc|ctr|ecb> <hexkey> [hexiv], rc4 <hexkey>;
+    md5, sha1, sha256, sha512, blake3, crc32, … (emit the hex digest as text).
 
 EXAMPLES:
     hexed find firmware.bin \"DE AD BE EF\" --all
@@ -73,6 +98,8 @@ EXAMPLES:
     hexed ihex export firmware.bin --addr 0x8000 -o firmware.hex
     hexed split image.dd 512m -o image.dd.part
     hexed concat image.dd.part.000 image.dd.part.001 -o image.dd
+    hexed recipe payload.bin \"from-base64 | gunzip\" -o payload.out
+    hexed recipe firmware.bin \"xor 3a | sha256\"
 ";
 
 fn main() -> ExitCode {
@@ -96,6 +123,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "len" => view::cmd_len(&args[1..]),
         "dump" => view::cmd_dump(&args[1..]),
         "patch" => edit::cmd_patch(&args[1..]),
+        "poke" => edit::cmd_poke(&args[1..]),
         "inspect" => view::cmd_inspect(&args[1..]),
         "fill" => edit::cmd_fill(&args[1..]),
         "find" => search::cmd_find(&args[1..]),
@@ -105,6 +133,16 @@ fn run(args: &[String]) -> Result<(), String> {
         "stats" => analyze::cmd_stats(&args[1..]),
         "magic" => analyze::cmd_magic(&args[1..]),
         "diff" => analyze::cmd_diff(&args[1..]),
+        "bindiff" => analyze::cmd_bindiff(&args[1..]),
+        "memscan" => analyze::cmd_memscan(&args[1..]),
+        "trace" => trace::cmd_trace(&args[1..]),
+        "elf" => format::cmd_elf(&args[1..]),
+        "pe" => format::cmd_pe(&args[1..]),
+        "macho" => format::cmd_macho(&args[1..]),
+        "struct" => format::cmd_struct(&args[1..]),
+        "detect" => detect::cmd_detect(&args[1..]),
+        "disasm" => disasm::cmd_disasm(&args[1..]),
+        "recipe" => recipe::cmd_recipe(&args[1..]),
         "bookmarks" => edit::cmd_bookmarks(&args[1..]),
         "export" => io::cmd_export(&args[1..]),
         "ihex" => io::cmd_records(RecordFormat::IntelHex, &args[1..]),

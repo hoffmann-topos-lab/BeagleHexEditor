@@ -23,23 +23,31 @@
 //! - **F-30/F-31** `export` — copy-as / report in textual formats.
 //! - **F-27/F-27a** `hexfile` — Intel HEX and S-record, import and export.
 //! - **F-57/F-58** `transform` — split into parts and concatenate files.
+//! - **F-68/F-69** `format` — executable format model (ELF/PE/Mach-O) with a
+//!   provenance tree; ELF is parsed, PE/Mach-O detected (Fase 9, em progresso).
+//! - **F-79/F-80** `recipe` — CyberChef-style transformations composed into a
+//!   pipeline over a selection (Fase 12).
 
 pub mod add_buffer;
 pub mod bookmarks;
 pub mod cache;
 pub mod charset;
 pub mod compare;
+pub mod disasm;
 pub mod disks;
 pub mod display;
 pub mod document;
 pub mod error;
 pub mod export;
+pub mod format;
 pub mod hash;
 pub mod hexfile;
+pub mod identify;
 pub mod inspector;
 pub mod magic;
 pub mod piece_table;
 pub mod progress;
+pub mod recipe;
 mod rng;
 pub mod search;
 pub mod shred;
@@ -50,15 +58,23 @@ pub mod transform;
 
 pub use bookmarks::{Bookmark, Bookmarks};
 pub use charset::Charset;
+pub use disasm::{
+    DisArch, DisasmJob, DisasmMode, DisasmOptions, Flow, Insn, Listing, StackString,
+};
 pub use disks::DiskInfo;
 pub use display::OffsetBase;
 pub use document::{Document, FillPattern, ReadResult, backup_file};
 pub use error::{Error, ErrorKind, Result};
 pub use export::{ExportFormat, ExportJob, ExportOptions};
+pub use format::{Arch, BinaryInfo, Bits, ExtraEntry, Format, Import, Reloc, Section, Symbol};
 pub use hexfile::RecordFormat;
+pub use identify::{
+    Detection, IdKind, IdentifyReport, Indicator, PackReport, SectionEntropy, Severity,
+};
 pub use inspector::{Endian, FieldKind};
 pub use piece_table::{Piece, PieceTable, StoreId};
 pub use progress::Progress;
+pub use recipe::{AesMode, Base64Variant, Base85Variant, Op, Recipe, RecipeJob};
 pub use search::{Pattern, Searcher, StepResult, find_all, find_next, replace_all};
 pub use shred::shred_file;
 pub use source::{Capabilities, DataSource, DiskSource, FileSource, HelperSource, MemSource};

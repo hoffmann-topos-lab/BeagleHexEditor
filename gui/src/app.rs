@@ -21,8 +21,10 @@ use crate::analyze::AnalyzeState;
 use crate::config::{Preferences, Theme};
 use crate::hexview::HexView;
 use crate::inspector::InspectorPanel;
+use crate::recipe::RecipeState;
 use crate::search::SearchState;
 use crate::shortcuts::{Action, Shortcuts};
+use crate::structure::StructureState;
 use crate::tools::ToolsState;
 
 /// F-43: identity of the on-disk file at the moment we read/saved it.
@@ -132,6 +134,10 @@ pub struct App {
     analyze: AnalyzeState,
     /// Phase 6: import/export and transform.
     tools: ToolsState,
+    /// Fase 9 (F-72): executable structure tree side panel.
+    structure: StructureState,
+    /// Fase 12 (F-80): transform-recipe window.
+    recipe: RecipeState,
     /// F-32: tab comparison — (initiator, other).
     compare: Option<(usize, usize)>,
     diff_job: Option<DiffJob>,

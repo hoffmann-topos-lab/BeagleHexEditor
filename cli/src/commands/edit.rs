@@ -24,6 +24,31 @@ pub(crate) fn cmd_patch(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// F-05/F-51 — In-place overwrite: writes only the changed bytes back to the
+/// file. Unlike `patch`, this **modifies the input** (only existing bytes, never
+/// growing the file), so it is guarded by `--yes`.
+pub(crate) fn cmd_poke(args: &[String]) -> Result<(), String> {
+    let (pos, flags) = split_flags(args, &["yes"])?;
+    let path = pos.first().ok_or("missing file")?;
+    let offset = parse_u64(pos.get(1).ok_or("missing offset")?)?;
+    let bytes = parse_hex(pos.get(2).ok_or("missing hex sequence")?)?;
+    if flag(&flags, "yes").is_none() {
+        return Err("poke overwrites the file in place; pass --yes to confirm".into());
+    }
+
+    let mut doc = open_doc(path)?;
+    doc.overwrite(offset, &bytes).map_err(|e| e.to_string())?;
+    if !doc.can_save_in_place() {
+        return Err(
+            "the edit would grow the file; poke only overwrites existing bytes (use patch -o)"
+                .into(),
+        );
+    }
+    let n = doc.save_in_place(path).map_err(|e| e.to_string())?;
+    eprintln!("hexed: {n} byte(s) written in place at {offset:#x} → {path}");
+    Ok(())
+}
+
 /// F-22 — Fill a range. Like `patch`, it never overwrites its input.
 pub(crate) fn cmd_fill(args: &[String]) -> Result<(), String> {
     let (pos, flags) = split_flags(args, &["random"])?;
