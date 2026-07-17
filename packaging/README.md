@@ -31,7 +31,7 @@ fundo transparente.
 ## macOS — bundle `.app` clicável
 
 ```sh
-packaging/macos/bundle.sh            # cria packaging/macos/Beagle Hex Editor.app
+packaging/macos/bundle.sh            # cria packaging/macos/Beagle RE Toolkit.app
 ```
 
 Compila a GUI em release, monta o `.app` (binário + `AppIcon.icns` + `Info.plist`)

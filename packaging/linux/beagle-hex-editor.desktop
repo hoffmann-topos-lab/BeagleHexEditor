@@ -1,14 +1,14 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Beagle Hex Editor
-GenericName=Hex Editor
-Comment=Edit files of any size, byte by byte
+Name=Beagle RE Toolkit
+GenericName=Reverse Engineering Toolkit
+Comment=Hex editor and reverse-engineering toolkit for files of any size
 Exec=hexed-gui %F
 Icon=beagle-hex-editor
 Terminal=false
 Categories=Development;Utility;
 MimeType=application/octet-stream;
-Keywords=hex;binary;editor;
+Keywords=hex;binary;editor;disassembler;reverse-engineering;
 StartupNotify=true
 StartupWMClass=beagle-hex-editor

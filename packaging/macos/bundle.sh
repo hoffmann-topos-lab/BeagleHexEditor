@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Monta "Beagle Hex Editor.app" — um bundle clicável com ícone no Dock — a
+# Monta "Beagle RE Toolkit.app" — um bundle clicável com ícone no Dock — a
 # partir do binário release da GUI.
 #
 # Uso: packaging/macos/bundle.sh [destino]
@@ -13,7 +13,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 DEST="${1:-$HERE}"
-APP="$DEST/Beagle Hex Editor.app"
+APP="$DEST/Beagle RE Toolkit.app"
 BIN_NAME="hexed-gui"
 
 echo "==> Compilando release…"

@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>Beagle Hex Editor</string>
+	<string>Beagle RE Toolkit</string>
 	<key>CFBundleDisplayName</key>
-	<string>Beagle Hex Editor</string>
+	<string>Beagle RE Toolkit</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.beagleshexeditor.hexed</string>
 	<key>CFBundleVersion</key>

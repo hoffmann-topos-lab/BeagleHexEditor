@@ -35,4 +35,4 @@ update-desktop-database -q "$PREFIX/share/applications" 2>/dev/null || true
 
 echo "==> Instalado."
 echo "    Garanta que $PREFIX/bin está no PATH."
-echo "    O 'Beagle Hex Editor' deve aparecer no menu de aplicativos."
+echo "    O 'Beagle RE Toolkit' deve aparecer no menu de aplicativos."
