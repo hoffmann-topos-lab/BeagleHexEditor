@@ -12,6 +12,7 @@
 
 use eframe::egui::{self, CollapsingHeader, RichText, Ui};
 use hexed_core::format::{self, Node};
+use hexed_core::{Format, Progress, pe_checksum};
 
 use crate::app::Tab;
 use crate::hexview::HexView;
@@ -30,6 +31,7 @@ pub struct StructureState {
 struct Parsed {
     summary: String,
     tree: Node,
+    is_pe: bool,
 }
 
 impl StructureState {
@@ -43,15 +45,23 @@ impl StructureState {
         }
         let Some(tab) = tabs.get_mut(active) else { return };
         let doc_len = tab.doc.len();
+        let is_pe = matches!(&self.result, Some(Ok(p)) if p.is_pe);
         let view = &mut tab.view;
         let result = &self.result;
         let mut want_reparse = false;
+        let mut fix_checksum = false;
 
         egui::SidePanel::left("structure").default_width(300.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("Structure");
                 if ui.small_button("⟳").on_hover_text("re-parse (after edits)").clicked() {
                     want_reparse = true;
+                }
+                // F-85: recompute the PE checksum after a patch.
+                if is_pe
+                    && ui.small_button("✓ checksum").on_hover_text("recompute PE checksum").clicked()
+                {
+                    fix_checksum = true;
                 }
             });
             ui.separator();
@@ -79,6 +89,17 @@ impl StructureState {
         if want_reparse {
             self.force = true;
         }
+        if fix_checksum {
+            match pe_checksum(&mut tab.doc, &Progress::new())
+                .and_then(|c| tab.doc.overwrite(c.field_offset, &c.computed.to_le_bytes()).map(|()| c))
+            {
+                Ok(c) => {
+                    tab.view.status = format!("PE checksum → {:#010x} (save to write)", c.computed);
+                    self.force = true; // refresh the field's value in the tree
+                }
+                Err(e) => tab.view.status = e.to_string(),
+            }
+        }
     }
 
     fn reparse(&mut self, tabs: &mut [Tab], active: usize) {
@@ -98,6 +119,7 @@ impl StructureState {
                     info.bits.name(),
                     info.endian.name()
                 ),
+                is_pe: info.format == Format::Pe,
                 tree: info.tree,
             }),
             Err(e) => Err(format!("not a recognised executable\n({e})")),

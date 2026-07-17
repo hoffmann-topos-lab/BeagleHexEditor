@@ -128,8 +128,11 @@ impl App {
         }
         self.tools.drive(&mut self.tabs, ctx);
         self.tools.windows(ctx, &mut self.tabs, self.active);
-        // Fase 12 (F-80): the transform-recipe window.
+        // Fase 10/11/12/13: identify, disassembly, transform-recipe and function-diff.
+        self.detect.window(ctx, &mut self.tabs, self.active);
+        self.disasm.window(ctx, &mut self.tabs, self.active);
         self.recipe.window(ctx, &mut self.tabs, self.active);
+        self.bindiff.window(ctx, &mut self.tabs, &mut self.active);
         self.compare_mode(ctx, actions.next_diff);
     }
 

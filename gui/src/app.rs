@@ -19,6 +19,9 @@ use hexed_core::{Bookmarks, DiskInfo, Document};
 
 use crate::analyze::AnalyzeState;
 use crate::config::{Preferences, Theme};
+use crate::bindiff::BindiffState;
+use crate::detect::DetectState;
+use crate::disasm::DisasmState;
 use crate::hexview::HexView;
 use crate::inspector::InspectorPanel;
 use crate::recipe::RecipeState;
@@ -136,6 +139,12 @@ pub struct App {
     tools: ToolsState,
     /// Fase 9 (F-72): executable structure tree side panel.
     structure: StructureState,
+    /// Fase 10 (F-73/74/75): identify window (packer/toolchain/indicators).
+    detect: DetectState,
+    /// Fase 11 (F-77): disassembly window.
+    disasm: DisasmState,
+    /// Fase 13 (F-81): function-diff window.
+    bindiff: BindiffState,
     /// Fase 12 (F-80): transform-recipe window.
     recipe: RecipeState,
     /// F-32: tab comparison — (initiator, other).

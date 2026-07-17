@@ -3,7 +3,10 @@
 
 mod analyze;
 mod app;
+mod bindiff;
 mod config;
+mod detect;
+mod disasm;
 mod hexview;
 mod inspector;
 mod recipe;
@@ -33,7 +36,7 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1100.0, 720.0])
-            .with_title("Beagle Hex Editor")
+            .with_title("Beagle RE Toolkit")
             .with_icon(load_icon())
             // Matches `beagle-hex-editor.desktop` (Wayland/X11) so the
             // compositor associates the window with the installed icon.

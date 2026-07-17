@@ -189,6 +189,17 @@ impl App {
                     }
                     act.magic |= ui.button("Signatures…").clicked();
                     ui.separator();
+                    // Fase 10/11: executable identification and disassembly.
+                    if ui.button("Identify (packer / toolchain)…").clicked() {
+                        self.detect.open = true;
+                    }
+                    if ui.button("Disassembly…").clicked() {
+                        self.disasm.open = true;
+                    }
+                    if ui.button("Function diff (bindiff)…").clicked() {
+                        self.bindiff.open = true;
+                    }
+                    ui.separator();
                     // F-32: byte-by-byte comparison with another tab.
                     ui.menu_button("Compare with", |ui| {
                         if self.tabs.len() < 2 {

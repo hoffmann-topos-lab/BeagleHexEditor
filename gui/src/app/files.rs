@@ -118,7 +118,13 @@ impl App {
             }
         }
 
-        let saved = match tab.doc.save_as(&path) {
+        // F-05/F-51: saving over the same file with an unchanged size writes only
+        // the dirty bytes (fast on huge files). Save As, or a resized document,
+        // takes the atomic full rewrite.
+        let in_place = !save_as && tab.doc.can_save_in_place();
+        let result =
+            if in_place { tab.doc.save_in_place(&path).map(|_| ()) } else { tab.doc.save_as(&path) };
+        let saved = match result {
             Ok(()) => {
                 tab.title = path
                     .file_name()
@@ -127,9 +133,10 @@ impl App {
                 tab.fp = fingerprint(&path);
                 tab.path = Some(path.clone());
                 tab.external_change = false;
-                tab.view.status = match &backed_up {
-                    Some(bak) => format!("saved (backup: {bak})"),
-                    None => "saved".into(),
+                tab.view.status = match (&backed_up, in_place) {
+                    (Some(bak), _) => format!("saved (backup: {bak})"),
+                    (None, true) => "saved in place".into(),
+                    (None, false) => "saved".into(),
                 };
                 // F-23: a "save as" gives orphaned bookmarks a path.
                 if !tab.marks.is_empty() {
