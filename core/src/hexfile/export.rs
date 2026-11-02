@@ -5,8 +5,8 @@ use std::ops::Range;
 
 use crate::document::Document;
 use crate::error::{Error, ErrorKind, Result};
+use crate::job::{self, RangeCursor, StepResult};
 use crate::progress::Progress;
-use crate::search::StepResult;
 
 use super::{ADDR_LIMIT, RecordFormat};
 
@@ -14,7 +14,7 @@ use super::{ADDR_LIMIT, RecordFormat};
 /// the count byte − 4 of address − 1 of checksum).
 const MAX_REC_LEN: usize = 250;
 
-/// Largest window per export step.
+/// Largest window per export step: each byte becomes ~2.5 characters of text.
 const WINDOW: u64 = 1 << 20;
 
 fn ihex_record(rec_type: u8, addr: u16, data: &[u8]) -> String {
@@ -52,10 +52,9 @@ fn srec_record(t: u8, addr_len: usize, addr: u64, data: &[u8]) -> String {
 /// addressed from `base` onwards.
 pub struct RecordExportJob {
     fmt: RecordFormat,
-    range: Range<u64>,
+    cursor: RangeCursor,
     base: u64,
     rec_len: usize,
-    pos: u64,
     /// Intel HEX: the current upper 16 bits (record type 04). Starts at 0 —
     /// files that fit in 64 KiB get no address record at all.
     linear_base: u16,
@@ -74,10 +73,9 @@ impl RecordExportJob {
         rec_len: usize,
         doc_len: u64,
     ) -> Result<Self> {
-        let start = range.start.min(doc_len);
-        let end = range.end.min(doc_len).max(start);
+        let cursor = RangeCursor::new(range, doc_len).with_window(WINDOW);
         let end_addr = base
-            .checked_add(end - start)
+            .checked_add(cursor.total())
             .filter(|e| *e <= ADDR_LIMIT)
             .ok_or_else(|| {
                 Error::new(
@@ -93,10 +91,9 @@ impl RecordExportJob {
         };
         Ok(Self {
             fmt,
-            range: start..end,
+            cursor,
             base,
             rec_len: rec_len.clamp(1, MAX_REC_LEN),
-            pos: start,
             linear_base: 0,
             srec_type,
             data_records: 0,
@@ -106,7 +103,7 @@ impl RecordExportJob {
     }
 
     pub fn total(&self) -> u64 {
-        self.range.end - self.range.start
+        self.cursor.total()
     }
 
     pub fn is_finished(&self) -> bool {
@@ -122,7 +119,7 @@ impl RecordExportJob {
         out: &mut impl Write,
     ) -> Result<StepResult> {
         if self.finished {
-            return Ok(StepResult { finished: true, scanned: 0 });
+            return Ok(StepResult::DONE);
         }
         if !self.header_done {
             if self.fmt == RecordFormat::Srec {
@@ -132,28 +129,16 @@ impl RecordExportJob {
         }
 
         let mut scanned = 0u64;
-        if self.pos < self.range.end {
-            let rec = self.rec_len as u64;
-            let want = budget.clamp(1, WINDOW);
-            let want = (want - want % rec).max(rec);
-            let n = want.min(self.range.end - self.pos);
+        if !self.cursor.is_done() {
+            let pos = self.cursor.pos();
+            let n = self.cursor.next_len(budget, self.rec_len as u64);
+            let data = job::read_clean(doc, pos, n, "export")?;
 
-            let read = doc.read(self.pos, n as usize);
-            if !read.is_clean() {
-                return Err(Error::new(
-                    ErrorKind::BadBlock,
-                    format!(
-                        "unreadable block at {:#x}; export aborted",
-                        read.unreadable[0].start
-                    ),
-                ));
-            }
-
-            let mut text = String::with_capacity(read.data.len() * 3);
+            let mut text = String::with_capacity(data.len() * 3);
             let mut off = 0usize;
-            while off < read.data.len() {
-                let addr = self.base + (self.pos + off as u64 - self.range.start);
-                let mut take = self.rec_len.min(read.data.len() - off);
+            while off < data.len() {
+                let addr = self.base + (pos + off as u64 - self.cursor.start());
+                let mut take = self.rec_len.min(data.len() - off);
                 if self.fmt == RecordFormat::IntelHex {
                     // Never cross the 64 KiB boundary: that is where the
                     // extended address record changes.
@@ -163,25 +148,25 @@ impl RecordExportJob {
                         text.push_str(&ihex_record(0x04, 0, &upper.to_be_bytes()));
                         self.linear_base = upper;
                     }
-                    text.push_str(&ihex_record(0x00, addr as u16, &read.data[off..off + take]));
+                    text.push_str(&ihex_record(0x00, addr as u16, &data[off..off + take]));
                 } else {
                     let addr_len = 1 + self.srec_type as usize;
                     text.push_str(&srec_record(
                         self.srec_type,
                         addr_len,
                         addr,
-                        &read.data[off..off + take],
+                        &data[off..off + take],
                     ));
                     self.data_records += 1;
                 }
                 off += take;
             }
             out.write_all(text.as_bytes())?;
-            self.pos += n;
+            self.cursor.advance(n);
             scanned = n;
         }
 
-        if self.pos >= self.range.end {
+        if self.cursor.is_done() {
             match self.fmt {
                 RecordFormat::IntelHex => out.write_all(b":00000001FF\n")?,
                 RecordFormat::Srec => {
@@ -217,13 +202,5 @@ pub fn write_records(
     progress: &Progress,
 ) -> Result<()> {
     let mut job = RecordExportJob::new(fmt, range, base, rec_len, doc.len())?;
-    progress.set_total(job.total());
-    while !job.is_finished() {
-        if progress.is_cancelled() {
-            return Err(Error::new(ErrorKind::Io, "cancelled"));
-        }
-        let st = job.step(doc, WINDOW, w)?;
-        progress.add_done(st.scanned);
-    }
-    Ok(())
+    job::run(progress, job.total(), |budget| job.step(doc, budget, w))
 }

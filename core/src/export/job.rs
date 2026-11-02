@@ -3,16 +3,15 @@ use std::ops::Range;
 
 use super::{ExportFormat, ExportOptions, WINDOW};
 use crate::document::Document;
-use crate::error::{Error, ErrorKind, Result};
-use crate::search::StepResult;
+use crate::error::Result;
+use crate::job::{self, RangeCursor, StepResult};
 
 /// F-30/F-31 — Cooperative export. The caller picks the destination: a file
 /// (the report), or a `Vec<u8>` (the GUI's clipboard).
 pub struct ExportJob {
     fmt: ExportFormat,
     opts: ExportOptions,
-    range: Range<u64>,
-    pos: u64,
+    cursor: RangeCursor,
     /// Width of the offset column, fixed by the end of the range.
     digits: usize,
     header_done: bool,
@@ -21,15 +20,14 @@ pub struct ExportJob {
 
 impl ExportJob {
     pub fn new(fmt: ExportFormat, opts: ExportOptions, range: Range<u64>, doc_len: u64) -> Self {
-        let start = range.start.min(doc_len);
-        let end = range.end.min(doc_len).max(start);
+        let cursor = RangeCursor::new(range, doc_len).with_window(WINDOW);
         let opts = ExportOptions { cols: opts.cols.max(1), ..opts };
-        let digits = opts.base.digits_for(end.saturating_add(opts.offset_start));
-        Self { fmt, opts, range: start..end, pos: start, digits, header_done: false, finished: false }
+        let digits = opts.base.digits_for(cursor.end().saturating_add(opts.offset_start));
+        Self { fmt, opts, cursor, digits, header_done: false, finished: false }
     }
 
     pub fn total(&self) -> u64 {
-        self.range.end - self.range.start
+        self.cursor.total()
     }
 
     pub fn is_finished(&self) -> bool {
@@ -45,7 +43,7 @@ impl ExportJob {
         out: &mut impl Write,
     ) -> Result<StepResult> {
         if self.finished {
-            return Ok(StepResult { finished: true, scanned: 0 });
+            return Ok(StepResult::DONE);
         }
         if !self.header_done {
             out.write_all(self.header().as_bytes())?;
@@ -53,31 +51,22 @@ impl ExportJob {
         }
 
         let mut scanned = 0u64;
-        if self.pos < self.range.end {
+        if !self.cursor.is_done() {
             // Always whole lines: a step never cuts a line in half.
-            let cols = self.opts.cols as u64;
-            let want = budget.clamp(1, WINDOW);
-            let want = (want - want % cols).max(cols);
-            let n = want.min(self.range.end - self.pos);
-
-            let read = doc.read(self.pos, n as usize);
-            if !read.is_clean() {
-                return Err(Error::new(
-                    ErrorKind::BadBlock,
-                    format!("unreadable block at {:#x}; export aborted", read.unreadable[0].start),
-                ));
-            }
+            let pos = self.cursor.pos();
+            let n = self.cursor.next_len(budget, self.opts.cols as u64);
+            let data = job::read_clean(doc, pos, n, "export")?;
             let text = if self.fmt.is_dump() {
-                self.dump_chunk(self.pos, &read.data)
+                self.dump_chunk(pos, &data)
             } else {
-                self.literal_chunk(self.pos, &read.data)
+                self.literal_chunk(pos, &data)
             };
             out.write_all(text.as_bytes())?;
-            self.pos += n;
+            self.cursor.advance(n);
             scanned = n;
         }
 
-        if self.pos >= self.range.end {
+        if self.cursor.is_done() {
             out.write_all(self.footer().as_bytes())?;
             self.finished = true;
         }
@@ -137,7 +126,7 @@ impl ExportJob {
         let cols = self.opts.cols;
         let mut s = String::with_capacity(data.len() * 8);
         for (k, b) in data.iter().enumerate() {
-            let i = (chunk_start - self.range.start) as usize + k;
+            let i = (chunk_start - self.cursor.start()) as usize + k;
             match self.fmt {
                 ExportFormat::HexText => {
                     if i > 0 {
@@ -168,7 +157,7 @@ impl ExportJob {
             }
         }
         // The last step closes the final line; the footer supplies the rest.
-        if chunk_start + data.len() as u64 == self.range.end && self.fmt == ExportFormat::HexText {
+        if chunk_start + data.len() as u64 == self.cursor.end() && self.fmt == ExportFormat::HexText {
             s.push('\n');
         }
         s

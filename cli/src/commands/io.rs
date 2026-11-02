@@ -3,7 +3,7 @@
 use hexed_core::hexfile::{self, RecordFormat};
 use hexed_core::{ExportFormat, ExportOptions, OffsetBase, Progress};
 
-use crate::args::{flag, parse_charset, parse_u64, search_range, split_flags};
+use crate::args::{parse_u64, split_flags};
 
 use super::open_doc;
 
@@ -12,35 +12,28 @@ use super::open_doc;
 pub(crate) fn cmd_export(args: &[String]) -> Result<(), String> {
     let (pos, flags) = split_flags(args, &[])?;
     let path = pos.first().ok_or("missing file")?;
-    let fmt = match flag(&flags, "format") {
-        Some(name) => {
-            ExportFormat::from_name(name).ok_or(format!("unknown format: {name}"))?
-        }
-        None => ExportFormat::HexText,
-    };
-    let mut opts = ExportOptions { charset: parse_charset(&flags)?, ..Default::default() };
-    if let Some(s) = flag(&flags, "cols") {
+    let fmt = flags.named("format", "format", ExportFormat::from_name)?.unwrap_or(ExportFormat::HexText);
+    let mut opts = ExportOptions { charset: flags.charset()?, ..Default::default() };
+    if let Some(s) = flags.get("cols") {
         opts.cols = parse_u64(s)?.clamp(1, 256) as usize;
     }
-    if let Some(s) = flag(&flags, "name") {
+    if let Some(s) = flags.get("name") {
         opts.var_name = s.to_string();
     }
-    if let Some(s) = flag(&flags, "base") {
-        opts.base = OffsetBase::from_name(s).ok_or(format!("unknown base: {s}"))?;
+    if let Some(base) = flags.named("base", "base", OffsetBase::from_name)? {
+        opts.base = base;
     }
-    if let Some(s) = flag(&flags, "offset-start") {
-        opts.offset_start = parse_u64(s)?;
-    }
+    opts.offset_start = flags.u64_or("offset-start", opts.offset_start)?;
 
     let mut doc = open_doc(path)?;
-    let range = search_range(&flags, doc.len())?;
-    match flag(&flags, "o").or_else(|| flag(&flags, "out")) {
+    let range = flags.range(doc.len())?;
+    match flags.out() {
         Some(out) => {
             let mut w = std::io::BufWriter::new(
                 std::fs::File::create(out).map_err(|e| e.to_string())?,
             );
             hexed_core::export::export(&mut doc, range, fmt, opts, &mut w, &Progress::new())
-                .map_err(|e| e.to_string())?;
+                ?;
             use std::io::Write;
             w.flush().map_err(|e| e.to_string())?;
             eprintln!("hexed: exported as {} → {out}", fmt.name());
@@ -48,7 +41,7 @@ pub(crate) fn cmd_export(args: &[String]) -> Result<(), String> {
         None => {
             let mut w = std::io::stdout().lock();
             hexed_core::export::export(&mut doc, range, fmt, opts, &mut w, &Progress::new())
-                .map_err(|e| e.to_string())?;
+                ?;
         }
     }
     Ok(())
@@ -61,13 +54,11 @@ pub(crate) fn cmd_records(fmt: RecordFormat, args: &[String]) -> Result<(), Stri
     let (pos, flags) = split_flags(args, &[])?;
     let dir = pos.first().map(String::as_str).ok_or("missing `import` or `export`")?;
     let path = pos.get(1).ok_or("missing input file")?;
-    let out = flag(&flags, "o")
-        .or_else(|| flag(&flags, "out"))
-        .ok_or("missing -o <output>. This command never overwrites its input.")?;
+    let out = flags.required_out()?;
 
     match dir {
         "import" => {
-            let fill = match flag(&flags, "fill") {
+            let fill = match flags.get("fill") {
                 Some(s) => u8::try_from(parse_u64(s)?)
                     .map_err(|_| format!("--fill must fit in one byte: {s}"))?,
                 None => 0xFF,
@@ -77,12 +68,12 @@ pub(crate) fn cmd_records(fmt: RecordFormat, args: &[String]) -> Result<(), Stri
                 RecordFormat::IntelHex => hexfile::parse_ihex(&text),
                 RecordFormat::Srec => hexfile::parse_srec(&text),
             }
-            .map_err(|e| e.to_string())?;
+            ?;
 
             let mut w = std::io::BufWriter::new(
                 std::fs::File::create(out).map_err(|e| e.to_string())?,
             );
-            let n = hexfile::write_flattened(&image, fill, &mut w).map_err(|e| e.to_string())?;
+            let n = hexfile::write_flattened(&image, fill, &mut w)?;
             use std::io::Write;
             w.flush().map_err(|e| e.to_string())?;
 
@@ -97,21 +88,15 @@ pub(crate) fn cmd_records(fmt: RecordFormat, args: &[String]) -> Result<(), Stri
             Ok(())
         }
         "export" => {
-            let base = match flag(&flags, "addr") {
-                Some(s) => parse_u64(s)?,
-                None => 0,
-            };
-            let width = match flag(&flags, "width") {
-                Some(s) => parse_u64(s)?.clamp(1, 250) as usize,
-                None => hexfile::DEFAULT_REC_LEN,
-            };
+            let base = flags.u64_or("addr", 0)?;
+            let width = flags.usize_or("width", hexfile::DEFAULT_REC_LEN)?.clamp(1, 250);
             let mut doc = open_doc(path)?;
-            let range = search_range(&flags, doc.len())?;
+            let range = flags.range(doc.len())?;
             let mut w = std::io::BufWriter::new(
                 std::fs::File::create(out).map_err(|e| e.to_string())?,
             );
             hexfile::write_records(&mut doc, range, fmt, base, width, &mut w, &Progress::new())
-                .map_err(|e| e.to_string())?;
+                ?;
             use std::io::Write;
             w.flush().map_err(|e| e.to_string())?;
             eprintln!("hexed: {} written → {out}", fmt.name());
@@ -126,13 +111,12 @@ pub(crate) fn cmd_split(args: &[String]) -> Result<(), String> {
     let (pos, flags) = split_flags(args, &[])?;
     let path = pos.first().ok_or("missing file")?;
     let part_size = crate::args::parse_size(pos.get(1).ok_or("missing part size")?)?;
-    let prefix = flag(&flags, "o")
-        .or_else(|| flag(&flags, "out"))
+    let prefix = flags.out()
         .ok_or("missing -o <prefix> for the parts")?;
 
     let mut doc = open_doc(path)?;
     let parts = hexed_core::transform::split(&mut doc, part_size, prefix, &Progress::new())
-        .map_err(|e| e.to_string())?;
+        ?;
     for p in &parts {
         println!("{}", p.display());
     }
@@ -146,13 +130,11 @@ pub(crate) fn cmd_concat(args: &[String]) -> Result<(), String> {
     if pos.is_empty() {
         return Err("missing input files".into());
     }
-    let out = flag(&flags, "o")
-        .or_else(|| flag(&flags, "out"))
-        .ok_or("missing -o <output>. This command never overwrites its input.")?;
+    let out = flags.required_out()?;
     let inputs: Vec<std::path::PathBuf> =
         pos.iter().map(std::path::PathBuf::from).collect();
     let n = hexed_core::transform::concat(&inputs, out, &Progress::new())
-        .map_err(|e| e.to_string())?;
+        ?;
     eprintln!("hexed: {} file(s), {n} byte(s) → {out}", inputs.len());
     Ok(())
 }

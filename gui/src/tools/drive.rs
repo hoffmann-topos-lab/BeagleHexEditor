@@ -1,142 +1,70 @@
 //! Per-frame execution of the export/transform jobs (F-07).
 
+use hexed_core::Document;
+
 use super::*;
 
 impl ToolsState {
     /// Runs the active job with the frame's budget (F-07).
     pub fn drive(&mut self, tabs: &mut [Tab], ctx: &egui::Context) {
-        let Some(job) = self.job.take() else { return };
+        let Some(mut job) = self.run.take() else { return };
         ctx.request_repaint();
-        if self.progress.is_cancelled() {
-            self.cleanup(job);
-            self.status = "operation cancelled".into();
+        if self.run.progress.is_cancelled() {
+            job.cleanup();
+            self.run.status = "operation cancelled".into();
             return;
         }
-        match job {
-            ToolJob::Export { tab, mut job, mut w, path } => {
-                let Some(t) = tabs.get_mut(tab) else {
-                    self.cleanup(ToolJob::Export { tab, job, w, path });
-                    self.status = "tab closed; export cancelled".into();
-                    return;
-                };
-                let mut budget = FRAME_BUDGET;
-                while budget > 0 {
-                    match job.step(&mut t.doc, budget, &mut w) {
-                        Ok(st) => {
-                            self.progress.add_done(st.scanned);
-                            budget = budget.saturating_sub(st.scanned.max(1));
-                            if st.finished {
-                                self.status = match w.flush() {
-                                    Ok(()) => format!("exported → {}", path.display()),
-                                    Err(e) => {
-                                        drop(w);
-                                        let _ = std::fs::remove_file(&path);
-                                        e.to_string()
-                                    }
-                                };
-                                return;
-                            }
-                        }
-                        Err(e) => {
-                            drop(w);
-                            let _ = std::fs::remove_file(&path);
-                            self.status = e.to_string();
-                            return;
-                        }
+        let progress = &self.run.progress;
+        let finished: Result<bool, String> = match &mut job {
+            ToolJob::Export { tab, job: j, w, .. } => doc_of(tabs, *tab)
+                .and_then(|doc| jobs::run_frame(progress, |b| Ok(j.step(doc, b, w)?))),
+            ToolJob::Record { tab, job: j, w, .. } => doc_of(tabs, *tab)
+                .and_then(|doc| jobs::run_frame(progress, |b| Ok(j.step(doc, b, w)?))),
+            ToolJob::Split { tab, job: j } => doc_of(tabs, *tab)
+                .and_then(|doc| jobs::run_frame(progress, |b| Ok(j.step(doc, b)?))),
+            ToolJob::Concat { job: j, .. } => jobs::run_frame(progress, |b| Ok(j.step(b)?)),
+        };
+        match finished {
+            Ok(true) => self.run.status = job.finish(),
+            Ok(false) => self.run.resume(job), // budget exhausted: continue next frame
+            Err(e) => {
+                job.cleanup();
+                self.run.status = e;
+            }
+        }
+    }
+}
+
+/// The document a job reads from; its tab may have been closed mid-job.
+fn doc_of(tabs: &mut [Tab], tab: usize) -> Result<&mut Document, String> {
+    tabs.get_mut(tab).map(|t| &mut t.doc).ok_or_else(|| "tab closed; operation cancelled".into())
+}
+
+impl ToolJob {
+    /// Seals a finished job; returns the status line.
+    fn finish(self) -> String {
+        match self {
+            ToolJob::Export { mut w, path, .. } | ToolJob::Record { mut w, path, .. } => {
+                match w.flush() {
+                    Ok(()) => format!("exported → {}", path.display()),
+                    Err(e) => {
+                        drop(w);
+                        let _ = std::fs::remove_file(&path);
+                        e.to_string()
                     }
                 }
-                self.job = Some(ToolJob::Export { tab, job, w, path });
             }
-            ToolJob::Record { tab, mut job, mut w, path } => {
-                let Some(t) = tabs.get_mut(tab) else {
-                    self.cleanup(ToolJob::Record { tab, job, w, path });
-                    self.status = "tab closed; export cancelled".into();
-                    return;
-                };
-                let mut budget = FRAME_BUDGET;
-                while budget > 0 {
-                    match job.step(&mut t.doc, budget, &mut w) {
-                        Ok(st) => {
-                            self.progress.add_done(st.scanned);
-                            budget = budget.saturating_sub(st.scanned.max(1));
-                            if st.finished {
-                                self.status = match w.flush() {
-                                    Ok(()) => format!("exported → {}", path.display()),
-                                    Err(e) => {
-                                        drop(w);
-                                        let _ = std::fs::remove_file(&path);
-                                        e.to_string()
-                                    }
-                                };
-                                return;
-                            }
-                        }
-                        Err(e) => {
-                            drop(w);
-                            let _ = std::fs::remove_file(&path);
-                            self.status = e.to_string();
-                            return;
-                        }
-                    }
-                }
-                self.job = Some(ToolJob::Record { tab, job, w, path });
-            }
-            ToolJob::Split { tab, mut job } => {
-                let Some(t) = tabs.get_mut(tab) else {
-                    job.abort();
-                    self.status = "tab closed; split cancelled".into();
-                    return;
-                };
-                let mut budget = FRAME_BUDGET;
-                while budget > 0 {
-                    match job.step(&mut t.doc, budget) {
-                        Ok(st) => {
-                            self.progress.add_done(st.scanned);
-                            budget = budget.saturating_sub(st.scanned.max(1));
-                            if st.finished {
-                                let parts = job.finish();
-                                self.status = format!("{} part(s) written", parts.len());
-                                return;
-                            }
-                        }
-                        Err(e) => {
-                            job.abort();
-                            self.status = e.to_string();
-                            return;
-                        }
-                    }
-                }
-                self.job = Some(ToolJob::Split { tab, job });
-            }
-            ToolJob::Concat { mut job, out } => {
-                let mut budget = FRAME_BUDGET;
-                while budget > 0 {
-                    match job.step(budget) {
-                        Ok(st) => {
-                            self.progress.add_done(st.scanned);
-                            budget = budget.saturating_sub(st.scanned.max(1));
-                            if st.finished {
-                                self.status = match job.finish() {
-                                    Ok(n) => format!("{n} byte(s) → {}", out.display()),
-                                    Err(e) => e.to_string(),
-                                };
-                                return;
-                            }
-                        }
-                        Err(e) => {
-                            self.status = e.to_string();
-                            return;
-                        }
-                    }
-                }
-                self.job = Some(ToolJob::Concat { job, out });
-            }
+            ToolJob::Split { job, .. } => format!("{} part(s) written", job.finish().len()),
+            ToolJob::Concat { job, out } => match job.finish() {
+                Ok(n) => format!("{n} byte(s) → {}", out.display()),
+                Err(e) => e.to_string(),
+            },
         }
     }
 
     /// Undoes what an interrupted job left behind.
-    fn cleanup(&mut self, job: ToolJob) {
-        match job {
+    fn cleanup(self) {
+        match self {
             ToolJob::Export { w, path, .. } | ToolJob::Record { w, path, .. } => {
                 drop(w);
                 let _ = std::fs::remove_file(&path);

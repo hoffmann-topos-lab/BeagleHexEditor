@@ -6,23 +6,21 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
-use eframe::egui::{self, Key, ProgressBar};
+use eframe::egui::{self, Key};
 use hexed_core::export::{self, ExportFormat, ExportJob, ExportOptions};
 use hexed_core::hexfile::{DEFAULT_REC_LEN, RecordExportJob, RecordFormat};
 use hexed_core::transform::{ConcatJob, SplitJob};
 use hexed_core::Progress;
 
 use crate::app::Tab;
-
-/// Bytes processed per frame.
-const FRAME_BUDGET: u64 = 16 << 20;
+use crate::jobs::{self, JobRunner};
 /// Copy-as cap: the clipboard is no place for gigabytes.
 const CLIPBOARD_MAX: u64 = 16 << 20;
 /// Import cap: flattening the image materializes it all in RAM (the CLI
 /// streams and has no such limit).
 pub const IMPORT_MAX: u64 = 512 << 20;
 
-enum ToolJob {
+pub(crate) enum ToolJob {
     /// F-30/F-31 — report or byte literal to a file.
     Export { tab: usize, job: ExportJob, w: BufWriter<File>, path: PathBuf },
     /// F-27/F-27a — Intel HEX / S-record.
@@ -34,9 +32,7 @@ enum ToolJob {
 }
 
 pub struct ToolsState {
-    job: Option<ToolJob>,
-    progress: Progress,
-    pub status: String,
+    run: JobRunner<ToolJob>,
 
     // F-31: the report dialog.
     pub report_open: bool,
@@ -56,9 +52,7 @@ pub struct ToolsState {
 impl Default for ToolsState {
     fn default() -> Self {
         Self {
-            job: None,
-            progress: Progress::new(),
-            status: String::new(),
+            run: JobRunner::default(),
             report_open: false,
             report_fmt: ExportFormat::Txt,
             report_sel: false,
@@ -73,7 +67,12 @@ impl Default for ToolsState {
 
 impl ToolsState {
     pub fn busy(&self) -> bool {
-        self.job.is_some()
+        self.run.busy()
+    }
+
+    /// The last job's status line (empty when none has run).
+    pub fn status(&self) -> &str {
+        &self.run.status
     }
 
     /// Export options inherited from the tab's view: the report comes out as
@@ -86,20 +85,6 @@ impl ToolsState {
             offset_start: tab.view.offset_start,
             ..Default::default()
         }
-    }
-
-    fn range_for(tab: &Tab, in_selection: bool) -> std::ops::Range<u64> {
-        match tab.view.selection() {
-            Some(sel) if in_selection => sel,
-            _ => 0..tab.doc.len(),
-        }
-    }
-
-    fn start(&mut self, job: ToolJob, total: u64) {
-        self.progress = Progress::new();
-        self.progress.set_total(total);
-        self.status = "processing…".into();
-        self.job = Some(job);
     }
 
     /// F-30 — Copies the selection as text in the given format. Blocking on
@@ -132,9 +117,9 @@ impl ToolsState {
         match ConcatJob::new(inputs, &out) {
             Ok(job) => {
                 let total = job.total();
-                self.start(ToolJob::Concat { job, out }, total);
+                self.run.start(ToolJob::Concat { job, out }, total);
             }
-            Err(e) => self.status = e.to_string(),
+            Err(e) => self.run.status = e.to_string(),
         }
     }
 }

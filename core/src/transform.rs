@@ -4,11 +4,8 @@ use std::path::{Path, PathBuf};
 
 use crate::document::Document;
 use crate::error::{Error, ErrorKind, Result};
+use crate::job::{self, StepResult, WINDOW};
 use crate::progress::Progress;
-use crate::search::StepResult;
-
-/// Window per step — the granularity of progress and cancellation.
-const WINDOW: u64 = 4 << 20;
 
 /// Name of part `index` out of `total`: `prefix.000`, `prefix.001`, …
 /// (three digits, more if there are over a thousand parts).
@@ -81,7 +78,7 @@ impl SplitJob {
     /// clean up.
     pub fn step(&mut self, doc: &mut Document, budget: u64) -> Result<StepResult> {
         if self.is_finished() {
-            return Ok(StepResult { finished: true, scanned: 0 });
+            return Ok(StepResult::DONE);
         }
         let mut remaining = budget.clamp(1, WINDOW);
         let mut scanned = 0u64;
@@ -93,14 +90,8 @@ impl SplitJob {
             let (tmp, filled) = self.current.as_mut().unwrap();
 
             let n = (self.part_size - *filled).min(remaining).min(self.doc_len - self.pos);
-            let read = doc.read(self.pos, n as usize);
-            if !read.is_clean() {
-                return Err(Error::new(
-                    ErrorKind::BadBlock,
-                    format!("unreadable block at {:#x}; split aborted", read.unreadable[0].start),
-                ));
-            }
-            tmp.as_file_mut().write_all(&read.data)?;
+            let data = job::read_clean(doc, self.pos, n, "split")?;
+            tmp.as_file_mut().write_all(&data)?;
             *filled += n;
             self.pos += n;
             scanned += n;
@@ -196,7 +187,7 @@ impl ConcatJob {
     /// input whole, in order.
     pub fn step(&mut self, budget: u64) -> Result<StepResult> {
         if self.is_finished() {
-            return Ok(StepResult { finished: true, scanned: 0 });
+            return Ok(StepResult::DONE);
         }
         let tmp = self.tmp.as_mut().expect("a live job has a temporary file");
         let mut remaining = budget.clamp(1, WINDOW) as usize;
@@ -244,34 +235,19 @@ pub fn split(
     progress: &Progress,
 ) -> Result<Vec<PathBuf>> {
     let mut job = SplitJob::new(doc.len(), part_size, prefix)?;
-    progress.set_total(job.total());
-    while !job.is_finished() {
-        if progress.is_cancelled() {
+    match job::run(progress, job.total(), |budget| job.step(doc, budget)) {
+        Ok(()) => Ok(job.finish()),
+        Err(e) => {
             job.abort();
-            return Err(Error::new(ErrorKind::Io, "cancelled"));
-        }
-        match job.step(doc, WINDOW) {
-            Ok(st) => progress.add_done(st.scanned),
-            Err(e) => {
-                job.abort();
-                return Err(e);
-            }
+            Err(e)
         }
     }
-    Ok(job.finish())
 }
 
 /// Blocking helper (CLI and tests).
 pub fn concat(inputs: &[PathBuf], out: impl Into<PathBuf>, progress: &Progress) -> Result<u64> {
     let mut job = ConcatJob::new(inputs, out)?;
-    progress.set_total(job.total());
-    while !job.is_finished() {
-        if progress.is_cancelled() {
-            return Err(Error::new(ErrorKind::Io, "cancelled"));
-        }
-        let st = job.step(WINDOW)?;
-        progress.add_done(st.scanned);
-    }
+    job::run(progress, job.total(), |budget| job.step(budget))?;
     job.finish()
 }
 

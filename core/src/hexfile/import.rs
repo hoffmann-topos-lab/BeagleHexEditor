@@ -1,21 +1,12 @@
 //! F-27/F-27a import — parsers for Intel HEX and Motorola S-record.
 
 use crate::error::{Error, ErrorKind, Result};
+use crate::hex::parse_bytes;
 
 use super::{Image, RecordFormat, Segment};
 
 fn parse_err(fmt: RecordFormat, line_no: usize, detail: impl std::fmt::Display) -> Error {
     Error::new(ErrorKind::Io, format!("{}, line {line_no}: {detail}", fmt.name()))
-}
-
-fn hex_bytes(s: &str) -> Option<Vec<u8>> {
-    if !s.len().is_multiple_of(2) {
-        return None;
-    }
-    s.as_bytes()
-        .chunks(2)
-        .map(|p| u8::from_str_radix(std::str::from_utf8(p).ok()?, 16).ok())
-        .collect()
 }
 
 /// F-27 — Intel HEX. Supported types: 00 (data), 01 (EOF), 02/04 (extended
@@ -36,7 +27,7 @@ pub fn parse_ihex(text: &str) -> Result<Image> {
         let Some(hex) = line.strip_prefix(':') else {
             return Err(parse_err(fmt, line_no, "record does not start with ':'"));
         };
-        let bytes = hex_bytes(hex)
+        let bytes = parse_bytes(hex)
             .ok_or_else(|| parse_err(fmt, line_no, "invalid hexadecimal digits"))?;
         if bytes.len() < 5 {
             return Err(parse_err(fmt, line_no, "record too short"));
@@ -107,7 +98,7 @@ pub fn parse_srec(text: &str) -> Result<Image> {
             .ok_or_else(|| parse_err(fmt, line_no, "record does not start with 'S'"))?;
         let (t, hex) = rest.split_at(rest.len().min(1));
         let bytes =
-            hex_bytes(hex).ok_or_else(|| parse_err(fmt, line_no, "invalid hexadecimal digits"))?;
+            parse_bytes(hex).ok_or_else(|| parse_err(fmt, line_no, "invalid hexadecimal digits"))?;
         if bytes.len() < 3 {
             return Err(parse_err(fmt, line_no, "record too short"));
         }

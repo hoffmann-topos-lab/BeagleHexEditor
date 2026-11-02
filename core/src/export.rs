@@ -16,7 +16,8 @@ use crate::progress::Progress;
 
 pub use job::ExportJob;
 
-/// Largest window per step.
+/// Largest window per step: lower than the default because every byte turns
+/// into several characters of text.
 const WINDOW: u64 = 1 << 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,15 +141,7 @@ pub fn export(
     progress: &Progress,
 ) -> Result<()> {
     let mut job = ExportJob::new(fmt, opts, range, doc.len());
-    progress.set_total(job.total());
-    while !job.is_finished() {
-        if progress.is_cancelled() {
-            return Err(Error::new(ErrorKind::Io, "cancelled"));
-        }
-        let st = job.step(doc, WINDOW, w)?;
-        progress.add_done(st.scanned);
-    }
-    Ok(())
+    crate::job::run(progress, job.total(), |budget| job.step(doc, budget, w))
 }
 
 /// Exports into a `String` (clipboard, tests).
