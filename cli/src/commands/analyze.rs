@@ -5,7 +5,7 @@ use hexed_core::hash::Algo;
 use hexed_core::strings::StrEncoding;
 use hexed_core::{Document, Progress, format};
 
-use crate::args::{flag, parse_u64, search_range, split_flags};
+use crate::args::split_flags;
 
 use super::open_doc;
 
@@ -13,22 +13,16 @@ use super::open_doc;
 pub(crate) fn cmd_hash(args: &[String]) -> Result<(), String> {
     let (pos, flags) = split_flags(args, &["all"])?;
     let path = pos.first().ok_or("missing file")?;
-    let algos: Vec<Algo> = if flag(&flags, "all").is_some() {
+    let algos: Vec<Algo> = if flags.has("all") {
         Algo::ALL.to_vec()
     } else {
-        match flag(&flags, "algos") {
-            Some(list) => list
-                .split(',')
-                .map(|a| Algo::from_name(a).ok_or(format!("unknown algorithm: {a}")))
-                .collect::<Result<_, _>>()?,
-            None => vec![Algo::Sha256],
-        }
+        flags.list("algos", "algorithm", Algo::from_name)?.unwrap_or(vec![Algo::Sha256])
     };
 
     let mut doc = open_doc(path)?;
-    let range = search_range(&flags, doc.len())?;
+    let range = flags.range(doc.len())?;
     let results = hexed_core::hash::digest(&mut doc, &algos, range, &Progress::new())
-        .map_err(|e| e.to_string())?;
+        ?;
     for (algo, hex) in results {
         println!("{:<10} {hex}", algo.name());
     }
@@ -40,28 +34,18 @@ pub(crate) fn cmd_hash(args: &[String]) -> Result<(), String> {
 pub(crate) fn cmd_strings(args: &[String]) -> Result<(), String> {
     let (pos, flags) = split_flags(args, &["stack"])?;
     let path = pos.first().ok_or("missing file")?;
-    let min = match flag(&flags, "min") {
-        Some(s) => parse_u64(s)? as usize,
-        None => 4,
-    };
-    if flag(&flags, "stack").is_some() {
+    let min = flags.usize_or("min", 4)?;
+    if flags.has("stack") {
         let mut doc = open_doc(path)?;
         return cmd_stack_strings(&mut doc, min);
     }
-    let encodings: Vec<StrEncoding> = match flag(&flags, "enc") {
-        Some(list) => list
-            .split(',')
-            .map(|e| StrEncoding::from_name(e).ok_or(format!("unknown encoding: {e}")))
-            .collect::<Result<_, _>>()?,
-        None => StrEncoding::ALL.to_vec(),
-    };
-    let limit = match flag(&flags, "limit") {
-        Some(s) => parse_u64(s)? as usize,
-        None => 10_000,
-    };
+    let encodings = flags
+        .list("enc", "encoding", StrEncoding::from_name)?
+        .unwrap_or_else(|| StrEncoding::ALL.to_vec());
+    let limit = flags.usize_or("limit", 10_000)?;
 
     let mut doc = open_doc(path)?;
-    let range = search_range(&flags, doc.len())?;
+    let range = flags.range(doc.len())?;
     let (found, truncated) =
         hexed_core::strings::extract(&mut doc, &encodings, min, range, limit, &Progress::new());
     for s in &found {
@@ -76,7 +60,7 @@ pub(crate) fn cmd_strings(args: &[String]) -> Result<(), String> {
 
 /// F-78 — Recovers stack strings from every executable section of a binary.
 fn cmd_stack_strings(doc: &mut Document, min: usize) -> Result<(), String> {
-    let info = format::parse(doc).map_err(|e| e.to_string())?;
+    let info = format::parse(doc)?;
     let Some(arch) = DisArch::from_format(info.arch, info.bits) else {
         return Err(format!(
             "no disassembler for {} — stack strings need x86/x64",
@@ -106,13 +90,10 @@ fn cmd_stack_strings(doc: &mut Document, min: usize) -> Result<(), String> {
 pub(crate) fn cmd_stats(args: &[String]) -> Result<(), String> {
     let (pos, flags) = split_flags(args, &["full"])?;
     let path = pos.first().ok_or("missing file")?;
-    let block = match flag(&flags, "block") {
-        Some(s) => Some(parse_u64(s)?),
-        None => None,
-    };
+    let block = flags.u64("block")?;
 
     let mut doc = open_doc(path)?;
-    let range = search_range(&flags, doc.len())?;
+    let range = flags.range(doc.len())?;
     let s = hexed_core::stats::stats(&mut doc, range, block, &Progress::new());
 
     println!("bytes           {}", s.total);
@@ -132,7 +113,7 @@ pub(crate) fn cmd_stats(args: &[String]) -> Result<(), String> {
         .collect::<Vec<_>>()
         .join("  "));
 
-    if flag(&flags, "full").is_some() {
+    if flags.has("full") {
         println!("\nhistogram:");
         for (b, c) in s.counts.iter().enumerate() {
             if *c > 0 {
@@ -170,12 +151,9 @@ pub(crate) fn cmd_magic(args: &[String]) -> Result<(), String> {
         });
     }
 
-    if flag(&flags, "scan").is_some() {
-        let limit = match flag(&flags, "limit") {
-            Some(s) => parse_u64(s)? as usize,
-            None => 1_000,
-        };
-        let range = search_range(&flags, doc.len())?;
+    if flags.has("scan") {
+        let limit = flags.usize_or("limit", 1_000)?;
+        let range = flags.range(doc.len())?;
         let (hits, truncated) =
             hexed_core::magic::scan(&mut doc, range, limit, &Progress::new());
         println!("\nsweep (carving):");
@@ -196,10 +174,7 @@ pub(crate) fn cmd_diff(args: &[String]) -> Result<(), String> {
     let (pos, flags) = split_flags(args, &[])?;
     let a_path = pos.first().ok_or("missing both files")?;
     let b_path = pos.get(1).ok_or("missing the second file")?;
-    let limit = match flag(&flags, "limit") {
-        Some(s) => parse_u64(s)? as usize,
-        None => 100,
-    };
+    let limit = flags.usize_or("limit", 100)?;
 
     let mut a = open_doc(a_path)?;
     let mut b = open_doc(b_path)?;
@@ -227,16 +202,13 @@ pub(crate) fn cmd_bindiff(args: &[String]) -> Result<(), String> {
     let (pos, flags) = split_flags(args, &["all"])?;
     let a_path = pos.first().ok_or("missing both files")?;
     let b_path = pos.get(1).ok_or("missing the second file")?;
-    let show_all = flag(&flags, "all").is_some();
-    let limit = match flag(&flags, "limit") {
-        Some(s) => parse_u64(s)? as usize,
-        None => 200,
-    };
+    let show_all = flags.has("all");
+    let limit = flags.usize_or("limit", 200)?;
 
     let mut a = open_doc(a_path)?;
     let mut b = open_doc(b_path)?;
     let report =
-        hexed_core::funcdiff::diff(&mut a, &mut b, &Progress::new()).map_err(|e| e.to_string())?;
+        hexed_core::funcdiff::diff(&mut a, &mut b, &Progress::new())?;
 
     println!("A: {a_path}  ({} function(s))", report.total_a);
     println!("B: {b_path}  ({} function(s))", report.total_b);
@@ -320,13 +292,10 @@ fn more(total: usize, limit: usize) {
 pub(crate) fn cmd_memscan(args: &[String]) -> Result<(), String> {
     let (pos, flags) = split_flags(args, &[])?;
     let path = pos.first().ok_or("missing file")?;
-    let limit = match flag(&flags, "limit") {
-        Some(s) => parse_u64(s)? as usize,
-        None => 40,
-    };
+    let limit = flags.usize_or("limit", 40)?;
 
     let mut doc = open_doc(path)?;
-    let r = hexed_core::dump::inspect(&mut doc, &Progress::new()).map_err(|e| e.to_string())?;
+    let r = hexed_core::dump::inspect(&mut doc, &Progress::new())?;
 
     println!("format    {}", r.kind.name());
     if let (Some(a), Some(b), Some(e)) = (r.arch, r.bits, r.endian) {

@@ -2,11 +2,8 @@ use std::ops::Range;
 
 use crate::charset::is_printable;
 use crate::document::Document;
+use crate::job::{self, RangeCursor, StepResult};
 use crate::progress::Progress;
-use crate::search::StepResult;
-
-/// Window per step.
-const WINDOW: u64 = 4 << 20;
 /// The displayed text is truncated at this length (the real one is reported).
 const TEXT_CAP: usize = 200;
 
@@ -219,8 +216,7 @@ fn utf8_len(first: u8) -> Option<usize> {
 pub struct StringsJob {
     scanners: Vec<Scanner>,
     min_chars: usize,
-    range: Range<u64>,
-    pos: u64,
+    cursor: RangeCursor,
 }
 
 impl StringsJob {
@@ -230,8 +226,6 @@ impl StringsJob {
         range: Range<u64>,
         doc_len: u64,
     ) -> Self {
-        let start = range.start.min(doc_len);
-        let end = range.end.min(doc_len);
         let mut scanners = Vec::new();
         for e in encodings {
             match e {
@@ -243,27 +237,27 @@ impl StringsJob {
                 }
             }
         }
-        Self { scanners, min_chars: min_chars.max(1), range: start..end, pos: start }
+        Self { scanners, min_chars: min_chars.max(1), cursor: RangeCursor::new(range, doc_len) }
     }
 
     pub fn total(&self) -> u64 {
-        self.range.end - self.range.start
+        self.cursor.total()
     }
 
     pub fn step(&mut self, doc: &mut Document, budget: u64, out: &mut Vec<FoundString>) -> StepResult {
-        if self.pos >= self.range.end {
-            return StepResult { finished: true, scanned: 0 };
+        if self.cursor.is_done() {
+            return StepResult::DONE;
         }
-        let n = (self.range.end - self.pos).min(budget.clamp(1, WINDOW));
-        let read = doc.read(self.pos, n as usize);
+        let n = self.cursor.next_len(budget, 1);
+        let read = doc.read(self.cursor.pos(), n as usize);
         for s in &mut self.scanners {
-            s.feed(self.pos, &read.data, self.min_chars, out);
+            s.feed(self.cursor.pos(), &read.data, self.min_chars, out);
         }
-        self.pos += n;
-        let finished = self.pos >= self.range.end;
+        self.cursor.advance(n);
+        let finished = self.cursor.is_done();
         if finished {
             for s in &mut self.scanners {
-                s.run.flush(self.min_chars, out); // runs abertos no fim do intervalo
+                s.run.flush(self.min_chars, out); // runs still open at the end of the range
             }
         }
         StepResult { finished, scanned: n }
@@ -280,15 +274,11 @@ pub fn extract(
     progress: &Progress,
 ) -> (Vec<FoundString>, bool) {
     let mut job = StringsJob::new(encodings, min_chars, range, doc.len());
-    progress.set_total(job.total());
     let mut out = Vec::new();
-    loop {
-        let st = job.step(doc, WINDOW, &mut out);
-        progress.add_done(st.scanned);
-        if st.finished || progress.is_cancelled() || out.len() > limit.saturating_mul(2) {
-            break;
-        }
-    }
+    job::sweep(progress, job.total(), |budget| {
+        let st = job.step(doc, budget, &mut out);
+        StepResult { finished: st.finished || out.len() > limit.saturating_mul(2), ..st }
+    });
     out.sort_by_key(|s| s.offset);
     let truncated = out.len() > limit;
     out.truncate(limit);

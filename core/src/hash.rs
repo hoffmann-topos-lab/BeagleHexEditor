@@ -3,11 +3,9 @@ use std::ops::Range;
 use md5::Digest as _;
 
 use crate::document::Document;
-use crate::error::{Error, ErrorKind, Result};
+use crate::error::Result;
+use crate::job::{self, RangeCursor, StepResult};
 use crate::progress::Progress;
-
-/// Window per step — the granularity of progress and cancellation.
-const WINDOW: u64 = 4 << 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Algo {
@@ -197,9 +195,7 @@ impl Hasher {
 
     /// The result in hexadecimal (lowercase, like the system tools).
     pub fn finalize(self) -> String {
-        fn hex(bytes: &[u8]) -> String {
-            bytes.iter().map(|b| format!("{b:02x}")).collect()
-        }
+        use crate::hex::encode as hex;
         match self.state {
             State::Md5(h) => hex(&h.finalize()),
             State::Sha1(h) => hex(&h.finalize()),
@@ -219,48 +215,38 @@ impl Hasher {
 /// F-25/F-26 — Cooperative computation: every algorithm in a single pass.
 pub struct DigestJob {
     hashers: Vec<Hasher>,
-    range: Range<u64>,
-    pos: u64,
+    cursor: RangeCursor,
 }
 
 impl DigestJob {
     pub fn new(algos: &[Algo], range: Range<u64>, doc_len: u64) -> Self {
-        let start = range.start.min(doc_len);
-        let end = range.end.min(doc_len);
         Self {
             hashers: algos.iter().map(|a| Hasher::new(*a)).collect(),
-            range: start..end,
-            pos: start,
+            cursor: RangeCursor::new(range, doc_len),
         }
     }
 
     pub fn total(&self) -> u64 {
-        self.range.end - self.range.start
+        self.cursor.total()
     }
 
     pub fn is_finished(&self) -> bool {
-        self.pos >= self.range.end
+        self.cursor.is_done()
     }
 
-    /// Processes up to `budget` bytes. Returns the bytes consumed; an
-    /// unreadable block is a fatal error — a hash of invented data is no hash.
-    pub fn step(&mut self, doc: &mut Document, budget: u64) -> Result<u64> {
+    /// Processes up to `budget` bytes. An unreadable block is a fatal error —
+    /// a hash of invented data is no hash.
+    pub fn step(&mut self, doc: &mut Document, budget: u64) -> Result<StepResult> {
         if self.is_finished() {
-            return Ok(0);
+            return Ok(StepResult::DONE);
         }
-        let n = (self.range.end - self.pos).min(budget.clamp(1, WINDOW));
-        let read = doc.read(self.pos, n as usize);
-        if !read.is_clean() {
-            return Err(Error::new(
-                ErrorKind::BadBlock,
-                format!("unreadable block at {:#x}; computation aborted", read.unreadable[0].start),
-            ));
-        }
+        let n = self.cursor.next_len(budget, 1);
+        let data = job::read_clean(doc, self.cursor.pos(), n, "computation")?;
         for h in &mut self.hashers {
-            h.update(&read.data);
+            h.update(&data);
         }
-        self.pos += n;
-        Ok(n)
+        self.cursor.advance(n);
+        Ok(StepResult { finished: self.is_finished(), scanned: n })
     }
 
     /// Consumes the finished job and returns `(algorithm, hex)` in the requested order.
@@ -278,14 +264,7 @@ pub fn digest(
     progress: &Progress,
 ) -> Result<Vec<(Algo, String)>> {
     let mut job = DigestJob::new(algos, range, doc.len());
-    progress.set_total(job.total());
-    while !job.is_finished() {
-        if progress.is_cancelled() {
-            return Err(Error::new(ErrorKind::Io, "cancelled"));
-        }
-        let n = job.step(doc, WINDOW)?;
-        progress.add_done(n);
-    }
+    job::run(progress, job.total(), |budget| job.step(doc, budget))?;
     Ok(job.finish())
 }
 
@@ -384,7 +363,7 @@ mod tests {
         let mut d = Document::new(Box::new(src));
         d.set_cache(crate::cache::BlockCache::new(16, 8));
         let err = digest(&mut d, &[Algo::Sha256], 0..64, &Progress::new()).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::BadBlock);
+        assert_eq!(err.kind, crate::ErrorKind::BadBlock);
     }
 
     #[test]

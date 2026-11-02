@@ -1,11 +1,8 @@
 use std::ops::Range;
 
 use crate::document::Document;
+use crate::job::{self, StepResult, WINDOW};
 use crate::progress::Progress;
-use crate::search::StepResult;
-
-/// Window per step.
-const WINDOW: u64 = 4 << 20;
 
 /// F-32 — "Next difference", cooperative.
 pub struct DiffJob {
@@ -43,13 +40,13 @@ impl DiffJob {
         budget: u64,
     ) -> (Option<u64>, StepResult) {
         if self.done {
-            return (None, StepResult { finished: true, scanned: 0 });
+            return (None, StepResult::DONE);
         }
         if self.pos >= self.common_end {
             self.done = true;
             // Different sizes: the first "difference" is the end of the shorter one.
             let found = self.lens_differ.then_some(self.common_end);
-            return (found, StepResult { finished: true, scanned: 0 });
+            return (found, StepResult::DONE);
         }
         let n = (self.common_end - self.pos).min(budget.clamp(1, WINDOW));
         let ra = a.read(self.pos, n as usize);
@@ -80,14 +77,13 @@ pub fn next_diff(
     progress: &Progress,
 ) -> Option<u64> {
     let mut job = DiffJob::new(from, a.len(), b.len());
-    progress.set_total(job.total_space());
-    loop {
-        let (found, st) = job.step(a, b, WINDOW);
-        progress.add_done(st.scanned);
-        if found.is_some() || st.finished || progress.is_cancelled() {
-            return found;
-        }
-    }
+    let mut found = None;
+    job::sweep(progress, job.total_space(), |budget| {
+        let (f, st) = job.step(a, b, budget);
+        found = f;
+        st
+    });
+    found
 }
 
 /// Contiguous ranges that differ (for `hexed diff`), up to `limit`. The second

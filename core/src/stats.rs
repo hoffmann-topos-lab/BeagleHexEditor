@@ -2,11 +2,8 @@
 use std::ops::Range;
 
 use crate::document::Document;
+use crate::job::{self, RangeCursor, StepResult};
 use crate::progress::Progress;
-use crate::search::StepResult;
-
-/// Window per step.
-const WINDOW: u64 = 4 << 20;
 
 /// Automatic block size: aims for ~2048 points on the chart, between 256 B and 1 MiB.
 pub fn auto_block_size(len: u64) -> u64 {
@@ -52,8 +49,7 @@ fn shannon(counts: &[u64; 256], total: u64) -> f64 {
 
 /// F-29/F-30a — Cooperative job: global histogram + entropy per block.
 pub struct StatsJob {
-    range: Range<u64>,
-    pos: u64,
+    cursor: RangeCursor,
     block_size: u64,
     /// End (absolute offset) of the block in progress.
     block_end: u64,
@@ -68,14 +64,12 @@ pub struct StatsJob {
 impl StatsJob {
     /// `block_size = None` picks one automatically from the range size.
     pub fn new(range: Range<u64>, doc_len: u64, block_size: Option<u64>) -> Self {
-        let start = range.start.min(doc_len);
-        let end = range.end.min(doc_len);
-        let bs = block_size.unwrap_or_else(|| auto_block_size(end - start)).max(1);
+        let cursor = RangeCursor::new(range, doc_len);
+        let bs = block_size.unwrap_or_else(|| auto_block_size(cursor.total())).max(1);
         Self {
-            range: start..end,
-            pos: start,
             block_size: bs,
-            block_end: (start + bs).min(end),
+            block_end: (cursor.start() + bs).min(cursor.end()),
+            cursor,
             counts: [0; 256],
             total: 0,
             unreadable: 0,
@@ -86,7 +80,7 @@ impl StatsJob {
     }
 
     pub fn total_space(&self) -> u64 {
-        self.range.end - self.range.start
+        self.cursor.total()
     }
 
     fn close_block(&mut self) {
@@ -121,26 +115,27 @@ impl StatsJob {
             }
             abs += take;
             len -= take;
-            if abs == self.block_end && self.block_end < self.range.end {
+            if abs == self.block_end && self.block_end < self.cursor.end() {
                 self.close_block();
-                self.block_end = (self.block_end + self.block_size).min(self.range.end);
+                self.block_end = (self.block_end + self.block_size).min(self.cursor.end());
             }
         }
     }
 
     pub fn step(&mut self, doc: &mut Document, budget: u64) -> StepResult {
-        if self.pos >= self.range.end {
-            return StepResult { finished: true, scanned: 0 };
+        if self.cursor.is_done() {
+            return StepResult::DONE;
         }
-        let n = (self.range.end - self.pos).min(budget.clamp(1, WINDOW));
-        let read = doc.read(self.pos, n as usize);
+        let pos = self.cursor.pos();
+        let n = self.cursor.next_len(budget, 1);
+        let read = doc.read(pos, n as usize);
 
         // Walk the window in readable/unreadable segments, in order.
-        let mut at = self.pos;
-        let window_end = self.pos + n;
+        let mut at = pos;
+        let window_end = pos + n;
         for bad in &read.unreadable {
             if bad.start > at {
-                let rel = (at - self.pos) as usize;
+                let rel = (at - pos) as usize;
                 let len = bad.start - at;
                 self.account(at, Some(&read.data[rel..rel + len as usize]), len);
             }
@@ -148,12 +143,12 @@ impl StatsJob {
             at = bad.end;
         }
         if at < window_end {
-            let rel = (at - self.pos) as usize;
+            let rel = (at - pos) as usize;
             self.account(at, Some(&read.data[rel..]), window_end - at);
         }
 
-        self.pos = window_end;
-        let finished = self.pos >= self.range.end;
+        self.cursor.advance(n);
+        let finished = self.cursor.is_done();
         if finished {
             self.close_block(); // the last block, possibly partial
         }
@@ -179,14 +174,7 @@ pub fn stats(
     progress: &Progress,
 ) -> Stats {
     let mut job = StatsJob::new(range, doc.len(), block_size);
-    progress.set_total(job.total_space());
-    loop {
-        let st = job.step(doc, WINDOW);
-        progress.add_done(st.scanned);
-        if st.finished || progress.is_cancelled() {
-            break;
-        }
-    }
+    job::sweep(progress, job.total_space(), |budget| job.step(doc, budget));
     job.finish()
 }
 

@@ -26,7 +26,7 @@ impl AnalyzeState {
             });
             ui.checkbox(&mut self.hash_in_selection, "selection only");
             ui.horizontal(|ui| {
-                let can = !self.busy() && self.hash_selected.iter().any(|s| *s);
+                let can = !self.run.busy() && self.hash_selected.iter().any(|s| *s);
                 if ui.add_enabled(can, egui::Button::new("Compute")).clicked()
                     && let Some(tab) = tabs.get(active)
                 {
@@ -36,14 +36,14 @@ impl AnalyzeState {
                         .filter(|(i, _)| self.hash_selected[*i])
                         .map(|(_, a)| *a)
                         .collect();
-                    let range = Self::range_for(tab, self.hash_in_selection);
+                    let range = jobs::tab_range(tab, self.hash_in_selection);
                     self.hash_results.clear();
                     let job = DigestJob::new(&algos, range, tab.doc.len());
                     let total = job.total();
-                    self.start(Job::Digest { tab: active, job }, total);
+                    self.run.start(Job::Digest { tab: active, job }, total);
                 }
             });
-            self.progress_row(ui);
+            self.run.status_ui(ui, 180.0);
             if !self.hash_results.is_empty() {
                 ui.separator();
                 for (algo, hex) in &self.hash_results {
@@ -76,7 +76,7 @@ impl AnalyzeState {
                 });
                 ui.horizontal(|ui| {
                     let any = self.str_utf8 || self.str_utf16le || self.str_utf16be;
-                    if ui.add_enabled(!self.busy() && any, egui::Button::new("Extract")).clicked()
+                    if ui.add_enabled(!self.run.busy() && any, egui::Button::new("Extract")).clicked()
                         && let Some(tab) = tabs.get(active)
                     {
                         let mut encodings = Vec::new();
@@ -98,10 +98,10 @@ impl AnalyzeState {
                             tab.doc.len(),
                         );
                         let total = job.total();
-                        self.start(Job::Strings { tab: active, job }, total);
+                        self.run.start(Job::Strings { tab: active, job }, total);
                     }
                 });
-                self.progress_row(ui);
+                self.run.status_ui(ui, 180.0);
                 if !self.str_results.is_empty() {
                     ui.separator();
                     let row_h = ui.text_style_height(&egui::TextStyle::Monospace);
@@ -145,16 +145,16 @@ impl AnalyzeState {
         let mut goto: Option<u64> = None;
         egui::Window::new("Statistics").open(&mut open).default_width(560.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
-                if ui.add_enabled(!self.busy(), egui::Button::new("Compute")).clicked()
+                if ui.add_enabled(!self.run.busy(), egui::Button::new("Compute")).clicked()
                     && let Some(tab) = tabs.get(active)
                 {
                     self.stats_result = None;
                     let job = Box::new(StatsJob::new(0..tab.doc.len(), tab.doc.len(), None));
                     let total = job.total_space();
-                    self.start(Job::Stats { tab: active, job }, total);
+                    self.run.start(Job::Stats { tab: active, job }, total);
                 }
             });
-            self.progress_row(ui);
+            self.run.status_ui(ui, 180.0);
             if let Some(s) = &self.stats_result {
                 ui.separator();
                 let distinct = s.counts.iter().filter(|c| **c > 0).count();
@@ -204,16 +204,16 @@ impl AnalyzeState {
             }
             ui.separator();
             if ui
-                .add_enabled(!self.busy(), egui::Button::new("Sweep embedded (carving)"))
+                .add_enabled(!self.run.busy(), egui::Button::new("Sweep embedded (carving)"))
                 .clicked()
                 && let Some(tab) = tabs.get(active)
             {
                 self.magic_scan.clear();
                 let job = MagicScanJob::new(0..tab.doc.len(), tab.doc.len());
                 let total = job.total();
-                self.start(Job::Magic { tab: active, job }, total);
+                self.run.start(Job::Magic { tab: active, job }, total);
             }
-            self.progress_row(ui);
+            self.run.status_ui(ui, 180.0);
             if !self.magic_scan.is_empty() {
                 ui.separator();
                 let row_h = ui.text_style_height(&egui::TextStyle::Monospace);
