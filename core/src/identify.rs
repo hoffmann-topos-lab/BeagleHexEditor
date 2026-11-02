@@ -45,7 +45,7 @@ pub fn analyze(doc: &mut Document, info: &BinaryInfo, progress: &Progress) -> Id
 
 /// The section whose mapped virtual-address range contains `va`, if any.
 pub(crate) fn section_at_vaddr(info: &BinaryInfo, va: u64) -> Option<&Section> {
-    info.sections.iter().find(|s| s.size > 0 && va >= s.vaddr && va < s.vaddr + s.size)
+    info.sections.iter().find(|s| s.contains_va(va))
 }
 
 /// Best-effort read of up to `cap` bytes of a section's file range; `None` when

@@ -7,7 +7,7 @@
 use hexed_core::identify::{Detection, Indicator, PackReport, Severity};
 use hexed_core::{Progress, format, identify, magic, stats};
 
-use crate::args::{flag, split_flags};
+use crate::args::{split_flags};
 
 use super::open_doc;
 
@@ -16,9 +16,9 @@ pub(crate) fn cmd_detect(args: &[String]) -> Result<(), String> {
     let path = pos.first().ok_or("missing file")?;
     let mut doc = open_doc(path)?;
 
-    let all = flag(&flags, "all").is_some();
-    let show_entropy = all || flag(&flags, "entropy").is_some();
-    let show_indicators = all || flag(&flags, "indicators").is_some();
+    let all = flags.has("all");
+    let show_entropy = all || flags.has("entropy");
+    let show_indicators = all || flags.has("indicators");
 
     let sigs = magic::identify(&mut doc);
     let type_line = if sigs.is_empty() {
@@ -37,13 +37,7 @@ pub(crate) fn cmd_detect(args: &[String]) -> Result<(), String> {
         return Ok(());
     };
 
-    println!(
-        "format    {} — {} {}, {}",
-        info.format.name(),
-        info.arch.name(),
-        info.bits.name(),
-        info.endian.name()
-    );
+    println!("format    {}", info.summary());
     if info.entry != 0 {
         println!("entry     {:#x}", info.entry);
     }

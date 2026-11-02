@@ -2,11 +2,8 @@ use std::ops::Range;
 use std::sync::OnceLock;
 
 use crate::document::Document;
+use crate::job::{self, RangeCursor, StepResult};
 use crate::progress::Progress;
-use crate::search::StepResult;
-
-/// Window per step.
-const WINDOW: u64 = 4 << 20;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Signature {
@@ -146,21 +143,18 @@ fn buckets() -> &'static [Vec<&'static Signature>; 256] {
 
 /// Sweep for embedded signatures (carving), cooperative.
 pub struct MagicScanJob {
-    range: Range<u64>,
-    pos: u64,
+    cursor: RangeCursor,
     max_span: u64,
 }
 
 impl MagicScanJob {
     pub fn new(range: Range<u64>, doc_len: u64) -> Self {
-        let start = range.start.min(doc_len);
-        let end = range.end.min(doc_len);
         let max_span = SIGNATURES.iter().map(|s| s.span()).max().unwrap_or(1);
-        Self { range: start..end, pos: start, max_span }
+        Self { cursor: RangeCursor::new(range, doc_len), max_span }
     }
 
     pub fn total(&self) -> u64 {
-        self.range.end - self.range.start
+        self.cursor.total()
     }
 
     pub fn step(
@@ -169,20 +163,21 @@ impl MagicScanJob {
         budget: u64,
         out: &mut Vec<(u64, &'static Signature)>,
     ) -> StepResult {
-        if self.pos >= self.range.end {
-            return StepResult { finished: true, scanned: 0 };
+        if self.cursor.is_done() {
+            return StepResult::DONE;
         }
-        let n = (self.range.end - self.pos).min(budget.clamp(1, WINDOW));
+        let pos = self.cursor.pos();
+        let n = self.cursor.next_len(budget, 1);
         // Overlap: a header may start at the very end of the window.
-        let read_len = (n + self.max_span - 1).min(self.range.end - self.pos);
-        let read = doc.read(self.pos, read_len as usize);
+        let read_len = (n + self.max_span - 1).min(self.cursor.remaining());
+        let read = doc.read(pos, read_len as usize);
         let buckets = buckets();
 
         for i in 0..n as usize {
             let hay = &read.data[i..];
             for s in &buckets[hay[0] as usize] {
                 if s.matches(hay) {
-                    let at = self.pos + i as u64;
+                    let at = pos + i as u64;
                     // F-06: a header over an unreadable block is not a header.
                     let span = s.span();
                     let bad =
@@ -193,8 +188,8 @@ impl MagicScanJob {
                 }
             }
         }
-        self.pos += n;
-        StepResult { finished: self.pos >= self.range.end, scanned: n }
+        self.cursor.advance(n);
+        StepResult { finished: self.cursor.is_done(), scanned: n }
     }
 }
 
@@ -206,19 +201,14 @@ pub fn scan(
     progress: &Progress,
 ) -> (Vec<(u64, &'static Signature)>, bool) {
     let mut job = MagicScanJob::new(range, doc.len());
-    progress.set_total(job.total());
     let mut out = Vec::new();
-    loop {
-        let st = job.step(doc, WINDOW, &mut out);
-        progress.add_done(st.scanned);
-        if out.len() >= limit {
-            out.truncate(limit);
-            return (out, true);
-        }
-        if st.finished || progress.is_cancelled() {
-            return (out, false);
-        }
-    }
+    job::sweep(progress, job.total(), |budget| {
+        let st = job.step(doc, budget, &mut out);
+        StepResult { finished: st.finished || out.len() >= limit, ..st }
+    });
+    let truncated = out.len() >= limit;
+    out.truncate(limit);
+    (out, truncated)
 }
 
 #[cfg(test)]

@@ -94,13 +94,7 @@ impl DetectState {
 
         let report = match format::parse(&mut tab.doc) {
             Ok(info) => {
-                let summary = format!(
-                    "{} — {} {}, {}",
-                    info.format.name(),
-                    info.arch.name(),
-                    info.bits.name(),
-                    info.endian.name()
-                );
+                let summary = info.summary();
                 let report = identify::analyze(&mut tab.doc, &info, &Progress::new());
                 Report {
                     type_line,
