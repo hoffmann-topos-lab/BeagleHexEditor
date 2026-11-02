@@ -241,3 +241,55 @@ fn an_unreadable_header_is_not_parsed() {
     let mut d = Document::new(Box::new(src));
     assert!(parse(&mut d).is_err());
 }
+
+fn text_section() -> Section {
+    Section {
+        name: ".text".into(),
+        file: 0x400..0x800,
+        vaddr: 0x1000,
+        size: 0x400,
+        perms: Perms { r: true, w: false, x: true },
+    }
+}
+
+#[test]
+fn va_maps_to_the_right_file_offset() {
+    let secs = [text_section()];
+    // VA 0x1000 is the section start → file 0x400; a 4-byte insn spans 0x400..0x404.
+    assert_eq!(va_to_file(&secs, 0x1000, 4), Some(0x400..0x404));
+    assert_eq!(va_to_file(&secs, 0x1040, 4), Some(0x440..0x444));
+    // A VA outside every section has no file bytes.
+    assert_eq!(va_to_file(&secs, 0x9999, 4), None);
+    assert_eq!(va_to_file(&secs, 0x0fff, 4), None);
+    // The end is clamped to the section's file range, never past it.
+    assert_eq!(va_to_file(&secs, 0x13ff, 8), Some(0x7ff..0x800));
+}
+
+#[test]
+fn vas_without_file_bytes_have_no_file_range() {
+    // `.bss`-style: mapped, but no file space at all.
+    let bss = Section {
+        name: ".bss".into(),
+        file: 0x800..0x800,
+        vaddr: 0x2000,
+        size: 0x100,
+        perms: Perms { r: true, w: true, x: false },
+    };
+    assert!(bss.contains_va(0x2000));
+    assert_eq!(va_to_file(&[bss], 0x2000, 4), None);
+    // A segment whose memory size exceeds its file size: the tail is zero-fill.
+    let data = Section { size: 0x800, ..text_section() };
+    assert_eq!(data.file_range(0x1400, 4), None);
+    // Later sections are tried when an earlier one has no bytes at `va`.
+    let bss_first = Section { file: 0..0, ..text_section() };
+    assert_eq!(va_to_file(&[bss_first, text_section()], 0x1000, 1), Some(0x400..0x401));
+}
+
+#[test]
+fn the_summary_names_format_arch_and_endianness() {
+    let mut d = doc(tiny_elf64());
+    let info = parse(&mut d).unwrap();
+    let s = info.summary();
+    assert!(s.starts_with("ELF — "), "{s}");
+    assert!(s.contains(info.arch.name()) && s.ends_with(info.endian.name()), "{s}");
+}

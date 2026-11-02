@@ -117,6 +117,30 @@ pub struct Section {
     pub perms: Perms,
 }
 
+impl Section {
+    /// True when `va` falls inside the section's mapped virtual range.
+    pub fn contains_va(&self, va: u64) -> bool {
+        va >= self.vaddr && va - self.vaddr < self.size
+    }
+
+    /// The file bytes behind `len` bytes at `va`, clamped to the section's file
+    /// range. `None` when `va` is outside the section or has no file bytes
+    /// behind it (`.bss`, or the zero-filled tail of a segment).
+    pub fn file_range(&self, va: u64, len: u64) -> Option<Range<u64>> {
+        if !self.contains_va(va) {
+            return None;
+        }
+        let off = self.file.start.checked_add(va - self.vaddr)?;
+        (off < self.file.end).then(|| off..off.saturating_add(len).min(self.file.end))
+    }
+}
+
+/// Maps a virtual address back to its file byte range through the section
+/// table: the first section with file bytes at `va` wins.
+pub fn va_to_file(sections: &[Section], va: u64, len: u64) -> Option<Range<u64>> {
+    sections.iter().find_map(|s| s.file_range(va, len))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymKind {
     Func,
@@ -203,6 +227,19 @@ pub struct BinaryInfo {
     /// Pre-`entry` code pointers (PE TLS callbacks). Usually empty.
     pub extra_entries: Vec<ExtraEntry>,
     pub tree: Node,
+}
+
+impl BinaryInfo {
+    /// One-line description: `"ELF — x86-64 64-bit, little-endian"`.
+    pub fn summary(&self) -> String {
+        format!(
+            "{} — {} {}, {}",
+            self.format.name(),
+            self.arch.name(),
+            self.bits.name(),
+            self.endian.name()
+        )
+    }
 }
 
 /// Peeks the leading bytes and names the executable format, if recognised.

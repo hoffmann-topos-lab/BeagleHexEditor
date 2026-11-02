@@ -112,13 +112,7 @@ impl StructureState {
         self.parsed = Some((active, tab.doc.len()));
         self.result = Some(match format::parse(&mut tab.doc) {
             Ok(info) => Ok(Parsed {
-                summary: format!(
-                    "{} — {} {}, {}",
-                    info.format.name(),
-                    info.arch.name(),
-                    info.bits.name(),
-                    info.endian.name()
-                ),
+                summary: info.summary(),
                 is_pe: info.format == Format::Pe,
                 tree: info.tree,
             }),

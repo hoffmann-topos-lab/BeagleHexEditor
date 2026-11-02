@@ -7,7 +7,7 @@
 use hexed_core::Progress;
 use hexed_core::format::{self, BinaryInfo, Format, Node};
 
-use crate::args::{flag, split_flags};
+use crate::args::{split_flags};
 
 use super::open_doc;
 
@@ -31,17 +31,17 @@ fn pe_checksum_cmd(args: &[String]) -> Result<(), String> {
     let (pos, flags) = split_flags(args, &["checksum"])?;
     let path = pos.first().ok_or("missing file")?;
     let mut doc = open_doc(path)?;
-    let c = hexed_core::pe_checksum(&mut doc, &Progress::new()).map_err(|e| e.to_string())?;
+    let c = hexed_core::pe_checksum(&mut doc, &Progress::new())?;
 
     println!("checksum field  {:#x}", c.field_offset);
     println!("stored          {:#010x}", c.stored);
     println!("computed        {:#010x}", c.computed);
     println!("status          {}", if c.matches() { "OK" } else { "MISMATCH" });
 
-    match flag(&flags, "o").or_else(|| flag(&flags, "out")) {
+    match flags.out() {
         Some(out) => {
-            doc.overwrite(c.field_offset, &c.computed.to_le_bytes()).map_err(|e| e.to_string())?;
-            doc.save_as(out).map_err(|e| e.to_string())?;
+            doc.overwrite(c.field_offset, &c.computed.to_le_bytes())?;
+            doc.save_as(out)?;
             eprintln!("hexed: wrote corrected checksum {:#010x} → {out}", c.computed);
         }
         None if !c.matches() => {
@@ -63,7 +63,7 @@ fn inspect(args: &[String], want: Format) -> Result<(), String> {
     let (pos, flags) = split_flags(args, VIEWS)?;
     let path = pos.first().ok_or("missing file")?;
     let mut doc = open_doc(path)?;
-    let info = format::parse(&mut doc).map_err(|e| e.to_string())?;
+    let info = format::parse(&mut doc)?;
     if info.format != want {
         let article = if want == Format::Elf { "an" } else { "a" };
         return Err(format!(
@@ -73,9 +73,9 @@ fn inspect(args: &[String], want: Format) -> Result<(), String> {
         ));
     }
 
-    let all = flag(&flags, "all").is_some();
-    let selected = |name| all || flag(&flags, name).is_some();
-    let default = !VIEWS.iter().any(|f| flag(&flags, f).is_some());
+    let all = flags.has("all");
+    let selected = |name| all || flags.has(name);
+    let default = !VIEWS.iter().any(|f| flags.has(f));
 
     print_summary(&info);
     if default || selected("sections") {
@@ -105,14 +105,8 @@ pub(crate) fn cmd_struct(args: &[String]) -> Result<(), String> {
     let (pos, _flags) = split_flags(args, &[])?;
     let path = pos.first().ok_or("missing file")?;
     let mut doc = open_doc(path)?;
-    let info = format::parse(&mut doc).map_err(|e| e.to_string())?;
-    println!(
-        "{} — {} {}, {}",
-        info.format.name(),
-        info.arch.name(),
-        info.bits.name(),
-        info.endian.name()
-    );
+    let info = format::parse(&mut doc)?;
+    println!("{}", info.summary());
     print_tree(&info.tree, 0);
     Ok(())
 }
