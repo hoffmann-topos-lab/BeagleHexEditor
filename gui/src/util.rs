@@ -10,13 +10,7 @@ pub(crate) fn enter_in(resp: egui::Response, ui: &egui::Ui) -> bool {
 }
 
 /// Numbers in decimal or hexadecimal with 0x, as everywhere in the UI.
-pub(crate) fn parse_num(s: &str) -> Option<u64> {
-    let s = s.trim();
-    match s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-        Some(h) => u64::from_str_radix(h, 16).ok(),
-        None => s.parse().ok(),
-    }
-}
+pub(crate) use hexed_core::hex::parse_u64 as parse_num;
 
 /// F-60 — The first non-Escape key press in this frame, as a shortcut.
 pub(crate) fn capture_combo(ctx: &egui::Context) -> Option<KeyboardShortcut> {

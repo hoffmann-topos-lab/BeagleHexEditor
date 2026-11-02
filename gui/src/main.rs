@@ -9,6 +9,7 @@ mod detect;
 mod disasm;
 mod hexview;
 mod inspector;
+mod jobs;
 mod recipe;
 mod search;
 mod shortcuts;

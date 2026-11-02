@@ -21,9 +21,9 @@ use hexed_core::{Document, Error, ErrorKind, disks};
 /// (F-47) is running, the read is routed through it.
 pub(crate) fn open_doc(path: &str) -> Result<Document, String> {
     if !path.starts_with("/dev/") {
-        return Document::open(path, false).map_err(|e| e.to_string());
+        return Ok(Document::open(path, false)?);
     }
-    let info = disks::find(path).map_err(|e| e.to_string())?;
+    let info = disks::find(path)?;
     let src = hexed_core::source::open_device(&info.node, info.block_size, false, &helper_socket())
         .map_err(privilege_hint)?;
     Ok(Document::new(src))

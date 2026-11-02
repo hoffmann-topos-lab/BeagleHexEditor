@@ -17,6 +17,8 @@ pub enum ErrorKind {
     NotResizable,
     /// The source is gone: device removed, process died, helper crashed.
     Disconnected,
+    /// The user cancelled a long operation (F-07). Not a failure.
+    Cancelled,
 }
 
 impl ErrorKind {
@@ -37,6 +39,11 @@ impl Error {
     pub fn new(kind: ErrorKind, detail: impl Into<String>) -> Self {
         Self { kind, detail: detail.into() }
     }
+
+    /// A long operation stopped at the user's request (F-07).
+    pub fn cancelled() -> Self {
+        Self::new(ErrorKind::Cancelled, "")
+    }
 }
 
 impl fmt::Display for Error {
@@ -49,6 +56,7 @@ impl fmt::Display for Error {
             ErrorKind::ReadOnly => "read-only source",
             ErrorKind::NotResizable => "source is not resizable",
             ErrorKind::Disconnected => "source disconnected",
+            ErrorKind::Cancelled => "cancelled",
         };
         if self.detail.is_empty() { write!(f, "{k}") } else { write!(f, "{k}: {}", self.detail) }
     }
@@ -67,6 +75,14 @@ impl From<io::Error> for Error {
             _ => ErrorKind::Io,
         };
         Error::new(kind, e.to_string())
+    }
+}
+
+/// The frontends report errors as text (the CLI's `Result<_, String>`, the
+/// GUI's status line); this lets `?` do the conversion.
+impl From<Error> for String {
+    fn from(e: Error) -> Self {
+        e.to_string()
     }
 }
 

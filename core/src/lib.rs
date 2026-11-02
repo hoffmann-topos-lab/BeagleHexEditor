@@ -18,7 +18,9 @@
 //! - **F-20** `charset` — character sets for the text pane.
 //! - **F-22** `document::fill` — filling a selection.
 //! - **F-23** `bookmarks` — bookmarks persisted to a sidecar file.
-//! - **F-07** `progress` — progress and cancellation of long operations.
+//! - `hex` — hex text ↔ numbers/bytes, shared by core, CLI and GUI.
+//! - **F-07** `progress`, `job` — progress and cancellation of long operations;
+//!   the shared cursor/driver plumbing of every cooperative job.
 //! - **F-13/F-14/F-15/F-28** `search` — incremental search and replace.
 //! - **F-30/F-31** `export` — copy-as / report in textual formats.
 //! - **F-27/F-27a** `hexfile` — Intel HEX and S-record, import and export.
@@ -49,9 +51,11 @@ pub mod export;
 pub mod format;
 pub mod funcdiff;
 pub mod hash;
+pub mod hex;
 pub mod hexfile;
 pub mod identify;
 pub mod inspector;
+pub mod job;
 pub mod magic;
 pub mod patch;
 pub mod piece_table;
@@ -88,7 +92,8 @@ pub use patch::{PeChecksum, pe_checksum};
 pub use piece_table::{Piece, PieceTable, StoreId};
 pub use progress::Progress;
 pub use recipe::{AesMode, Base64Variant, Base85Variant, Op, Recipe, RecipeJob};
-pub use search::{Pattern, Searcher, StepResult, find_all, find_next, replace_all};
+pub use job::StepResult;
+pub use search::{Pattern, Searcher, find_all, find_next, replace_all};
 pub use shred::shred_file;
 pub use source::{Capabilities, DataSource, DiskSource, FileSource, HelperSource, MemSource};
 
