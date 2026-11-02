@@ -2,7 +2,7 @@
 
 use hexed_core::{Bookmark, Bookmarks, FillPattern};
 
-use crate::args::{flag, parse_hex, parse_u64, split_flags};
+use crate::args::{parse_hex, parse_u64, split_flags};
 
 use super::open_doc;
 
@@ -17,8 +17,8 @@ pub(crate) fn cmd_patch(args: &[String]) -> Result<(), String> {
     };
 
     let mut doc = open_doc(path)?;
-    doc.overwrite(offset, &bytes).map_err(|e| e.to_string())?;
-    doc.save_as(out).map_err(|e| e.to_string())?;
+    doc.overwrite(offset, &bytes)?;
+    doc.save_as(out)?;
 
     eprintln!("hexed: {} byte(s) written at {offset:#x} → {out}", bytes.len());
     Ok(())
@@ -32,19 +32,19 @@ pub(crate) fn cmd_poke(args: &[String]) -> Result<(), String> {
     let path = pos.first().ok_or("missing file")?;
     let offset = parse_u64(pos.get(1).ok_or("missing offset")?)?;
     let bytes = parse_hex(pos.get(2).ok_or("missing hex sequence")?)?;
-    if flag(&flags, "yes").is_none() {
+    if !flags.has("yes") {
         return Err("poke overwrites the file in place; pass --yes to confirm".into());
     }
 
     let mut doc = open_doc(path)?;
-    doc.overwrite(offset, &bytes).map_err(|e| e.to_string())?;
+    doc.overwrite(offset, &bytes)?;
     if !doc.can_save_in_place() {
         return Err(
             "the edit would grow the file; poke only overwrites existing bytes (use patch -o)"
                 .into(),
         );
     }
-    let n = doc.save_in_place(path).map_err(|e| e.to_string())?;
+    let n = doc.save_in_place(path)?;
     eprintln!("hexed: {n} byte(s) written in place at {offset:#x} → {path}");
     Ok(())
 }
@@ -55,12 +55,10 @@ pub(crate) fn cmd_fill(args: &[String]) -> Result<(), String> {
     let path = pos.first().ok_or("missing input file")?;
     let offset = parse_u64(pos.get(1).ok_or("missing offset")?)?;
     let len = parse_u64(pos.get(2).ok_or("missing length")?)?;
-    let out = flag(&flags, "o")
-        .or_else(|| flag(&flags, "out"))
-        .ok_or("missing -o <output>. This command never overwrites its input.")?;
+    let out = flags.required_out()?;
 
-    let pattern = if flag(&flags, "random").is_some() {
-        let seed = match flag(&flags, "seed") {
+    let pattern = if flags.has("random") {
+        let seed = match flags.get("seed") {
             Some(s) => parse_u64(s)?,
             None => std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -74,8 +72,8 @@ pub(crate) fn cmd_fill(args: &[String]) -> Result<(), String> {
     };
 
     let mut doc = open_doc(path)?;
-    doc.fill(offset, len, &pattern).map_err(|e| e.to_string())?;
-    doc.save_as(out).map_err(|e| e.to_string())?;
+    doc.fill(offset, len, &pattern)?;
+    doc.save_as(out)?;
 
     eprintln!("hexed: {len} byte(s) filled from {offset:#x} → {out}");
     Ok(())
@@ -85,7 +83,7 @@ pub(crate) fn cmd_fill(args: &[String]) -> Result<(), String> {
 pub(crate) fn cmd_bookmarks(args: &[String]) -> Result<(), String> {
     let path = args.first().ok_or("missing file")?;
     let sidecar = Bookmarks::sidecar_for(std::path::Path::new(path));
-    let mut marks = Bookmarks::load(&sidecar).map_err(|e| e.to_string())?;
+    let mut marks = Bookmarks::load(&sidecar)?;
 
     match args.get(1).map(String::as_str) {
         None | Some("list") => {
@@ -104,7 +102,7 @@ pub(crate) fn cmd_bookmarks(args: &[String]) -> Result<(), String> {
             let name = args.get(4).ok_or("missing name")?.clone();
             let description = args.get(5).cloned().unwrap_or_default();
             marks.add(Bookmark { offset, len, name, description });
-            marks.save(&sidecar).map_err(|e| e.to_string())?;
+            marks.save(&sidecar)?;
             eprintln!("hexed: {} bookmark(s) in {}", marks.len(), sidecar.display());
             Ok(())
         }
@@ -113,7 +111,7 @@ pub(crate) fn cmd_bookmarks(args: &[String]) -> Result<(), String> {
             let removed = marks
                 .remove(index)
                 .ok_or(format!("index {index} does not exist ({} bookmarks)", marks.len()))?;
-            marks.save(&sidecar).map_err(|e| e.to_string())?;
+            marks.save(&sidecar)?;
             eprintln!("hexed: removed \"{}\"", removed.name);
             Ok(())
         }

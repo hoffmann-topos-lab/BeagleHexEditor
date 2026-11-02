@@ -17,6 +17,7 @@ mod tests;
 use crate::document::Document;
 use crate::error::{Error, ErrorKind, Result};
 use crate::format::read_exact;
+use crate::job::{self, RangeCursor, StepResult};
 use crate::progress::Progress;
 
 /// The stored vs. recomputed PE checksum, and where the field lives.
@@ -70,25 +71,14 @@ pub fn pe_checksum(doc: &mut Document, progress: &Progress) -> Result<PeChecksum
 /// Sums the file in 32-bit words with the CheckSum field zeroed, then adds the
 /// file length.
 fn compute(doc: &mut Document, field_offset: u64, progress: &Progress) -> Result<u32> {
-    const WINDOW: u64 = 1 << 20; // a multiple of 4, so only the last window is short
     let len = doc.len();
-    progress.set_total(len);
-
+    let mut cursor = RangeCursor::new(0..len, len);
     let mut sum: u64 = 0;
-    let mut pos = 0u64;
-    while pos < len {
-        if progress.is_cancelled() {
-            return Err(Error::new(ErrorKind::Io, "cancelled"));
-        }
-        let n = (len - pos).min(WINDOW);
-        let read = doc.read(pos, n as usize);
-        if !read.is_clean() {
-            return Err(Error::new(
-                ErrorKind::BadBlock,
-                format!("unreadable block at {:#x}; checksum aborted", read.unreadable[0].start),
-            ));
-        }
-        let mut data = read.data;
+    job::run(progress, cursor.total(), |budget| {
+        let pos = cursor.pos();
+        // Whole 32-bit words, so only the last window can be short.
+        let n = cursor.next_len(budget, 4);
+        let mut data = job::read_clean(doc, pos, n, "checksum")?;
         // Take the CheckSum field's bytes as zero.
         for i in 0..4u64 {
             let fo = field_offset + i;
@@ -97,22 +87,20 @@ fn compute(doc: &mut Document, field_offset: u64, progress: &Progress) -> Result
             }
         }
 
-        let full = data.len() / 4 * 4;
-        let mut i = 0;
-        while i < full {
-            let dw = u32::from_le_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as u64;
-            sum = fold32(sum + dw);
-            i += 4;
+        let mut words = data.chunks_exact(4);
+        for w in &mut words {
+            sum = fold32(sum + u32::from_le_bytes([w[0], w[1], w[2], w[3]]) as u64);
         }
         // A short tail (only possible in the final window) pads with zeros.
-        if i < data.len() {
+        let tail = words.remainder();
+        if !tail.is_empty() {
             let mut b = [0u8; 4];
-            b[..data.len() - i].copy_from_slice(&data[i..]);
+            b[..tail.len()].copy_from_slice(tail);
             sum = fold32(sum + u32::from_le_bytes(b) as u64);
         }
-        progress.add_done(n);
-        pos += n;
-    }
+        cursor.advance(n);
+        Ok(StepResult { finished: cursor.is_done(), scanned: n })
+    })?;
 
     let mut cs = (sum & 0xffff) + (sum >> 16);
     cs += cs >> 16;

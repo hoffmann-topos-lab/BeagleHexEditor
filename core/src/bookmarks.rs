@@ -50,11 +50,7 @@ impl Bookmarks {
                 let s = s.ok_or_else(|| {
                     Error::new(ErrorKind::Io, format!("malformed line {}", n + 1))
                 })?;
-                let r = match s.strip_prefix("0x") {
-                    Some(h) => u64::from_str_radix(h, 16),
-                    None => s.parse(),
-                };
-                r.map_err(|_| {
+                crate::hex::parse_u64(s).ok_or_else(|| {
                     Error::new(ErrorKind::Io, format!("invalid number on line {}", n + 1))
                 })
             };
