@@ -3,7 +3,7 @@
 use hexed_core::inspector::FieldKind;
 use hexed_core::{Charset, Endian, OffsetBase};
 
-use crate::args::{flag, parse_charset, parse_u64, split_flags};
+use crate::args::{parse_u64, split_flags};
 
 use super::open_doc;
 
@@ -17,11 +17,8 @@ pub(crate) fn cmd_len(args: &[String]) -> Result<(), String> {
 pub(crate) fn cmd_dump(args: &[String]) -> Result<(), String> {
     let (pos, flags) = split_flags(args, &[])?;
     let path = pos.first().ok_or("missing file")?;
-    let charset = parse_charset(&flags)?;
-    let base = match flag(&flags, "base") {
-        Some(name) => OffsetBase::from_name(name).ok_or(format!("unknown base: {name}"))?,
-        None => OffsetBase::Hex,
-    };
+    let charset = flags.charset()?;
+    let base = flags.named("base", "base", OffsetBase::from_name)?.unwrap_or(OffsetBase::Hex);
     let mut doc = open_doc(path)?;
 
     let offset = match pos.get(1) {
@@ -49,8 +46,8 @@ pub(crate) fn cmd_inspect(args: &[String]) -> Result<(), String> {
         Some(s) => parse_u64(s)?,
         None => 0,
     };
-    let endian = if flag(&flags, "be").is_some() { Endian::Big } else { Endian::Little };
-    let charset = parse_charset(&flags)?;
+    let endian = if flags.has("be") { Endian::Big } else { Endian::Little };
+    let charset = flags.charset()?;
 
     let mut doc = open_doc(path)?;
     if offset > doc.len() {

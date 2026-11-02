@@ -37,11 +37,7 @@ pub(super) fn sign_extend(v: u64, bits: u32) -> i64 {
 }
 
 pub(super) fn parse_u(s: &str, max: u64) -> Result<u64, String> {
-    let v = match s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-        Some(h) => u64::from_str_radix(h, 16),
-        None => s.parse::<u64>(),
-    }
-    .map_err(|_| format!("invalid integer: {s}"))?;
+    let v = crate::hex::parse_u64(s).ok_or_else(|| format!("invalid integer: {s}"))?;
     if v > max {
         return Err(format!("above the maximum {max}"));
     }
@@ -53,11 +49,7 @@ pub(super) fn parse_i(s: &str, min: i64, max: i64) -> Result<i64, String> {
         Some(r) => (true, r),
         None => (false, s),
     };
-    let mag = match rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
-        Some(h) => i128::from_str_radix(h, 16),
-        None => rest.parse::<i128>(),
-    }
-    .map_err(|_| format!("invalid integer: {s}"))?;
+    let mag: i128 = crate::hex::parse_u64(rest).ok_or_else(|| format!("invalid integer: {s}"))?.into();
     let v = if neg { -mag } else { mag };
     if v < min as i128 || v > max as i128 {
         return Err(format!("outside the range [{min}, {max}]"));

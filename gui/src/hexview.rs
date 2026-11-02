@@ -312,16 +312,9 @@ impl HexView {
 }
 
 /// Accepts "DE AD BE EF", "DEADBEEF", with line breaks etc.
+/// Empty input is `None`: there is nothing to paste or fill with.
 pub(crate) fn parse_hex(s: &str) -> Option<Vec<u8>> {
-    let clean: String = s.chars().filter(|c| !c.is_whitespace()).collect();
-    if clean.is_empty() || !clean.len().is_multiple_of(2) {
-        return None;
-    }
-    clean
-        .as_bytes()
-        .chunks(2)
-        .map(|p| u8::from_str_radix(std::str::from_utf8(p).ok()?, 16).ok())
-        .collect()
+    hexed_core::hex::parse_bytes(s).filter(|b| !b.is_empty())
 }
 
 /// F-13: absolute offsets ("1000", "0x1F4") and relative ("+100", "-0x40").
@@ -332,11 +325,7 @@ pub fn parse_goto(s: &str, current: u64, len: u64) -> Option<u64> {
         b'-' => (-1i8, &s[1..]),
         _ => (0, s),
     };
-    let rest = rest.trim();
-    let n = match rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
-        Some(h) => u64::from_str_radix(h, 16).ok()?,
-        None => rest.parse::<u64>().ok()?,
-    };
+    let n = hexed_core::hex::parse_u64(rest)?;
     let target = match sign {
         1 => current.saturating_add(n),
         -1 => current.checked_sub(n)?,

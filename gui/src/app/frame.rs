@@ -166,9 +166,9 @@ impl App {
                 }
                 // Phase 6: the last tool's result (progress has its own window
                 // while it runs).
-                if !self.tools.busy() && !self.tools.status.is_empty() {
+                if !self.tools.busy() && !self.tools.status().is_empty() {
                     ui.separator();
-                    ui.label(&self.tools.status);
+                    ui.label(self.tools.status());
                 }
             });
         });
