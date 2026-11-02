@@ -9,21 +9,10 @@ mod tests;
 use std::ops::Range;
 
 use crate::document::Document;
+use crate::job::{StepResult, WINDOW};
 
 pub use blocking::{apply_replacement, find_all, find_next, replace_all};
 pub use pattern::Pattern;
-
-/// Largest window scanned by `step` — the granularity of progress and cancellation.
-pub const WINDOW: u64 = 4 << 20;
-
-/// Result of one cooperative step.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StepResult {
-    /// The search space is exhausted (including the wrap pass, if requested).
-    pub finished: bool,
-    /// Bytes scanned in this step — feeds the caller's `Progress`.
-    pub scanned: u64,
-}
 
 /// Incremental search (F-15: direction, wrap-around, range restriction).
 pub struct Searcher {
@@ -91,7 +80,7 @@ impl Searcher {
     /// the last one (the closest to the cursor).
     pub fn step(&mut self, doc: &mut Document, budget: u64, out: &mut Vec<u64>) -> StepResult {
         if self.finished {
-            return StepResult { finished: true, scanned: 0 };
+            return StepResult::DONE;
         }
         let m = self.pattern.len() as u64;
         let window = budget.clamp(1, WINDOW);

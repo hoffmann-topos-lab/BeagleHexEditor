@@ -5,7 +5,8 @@ use hexed_core::search::{self, Searcher};
 
 use crate::app::Tab;
 
-use super::{FRAME_BUDGET, Hit, JobKind, MAX_RESULTS, SearchState};
+use super::{Hit, JobKind, MAX_RESULTS, SearchState};
+use crate::jobs::FRAME_BUDGET;
 
 impl SearchState {
     pub fn drive(&mut self, tabs: &mut [Tab], active: &mut usize, ctx: &egui::Context) {

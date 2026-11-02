@@ -8,9 +8,7 @@ use hexed_core::search::{self, Pattern, Searcher};
 use hexed_core::{Endian, Progress};
 
 use crate::app::Tab;
-
-/// Bytes scanned per frame. 16 MiB ≈ a few ms per frame and ~1 GB/s.
-const FRAME_BUDGET: u64 = 16 << 20;
+use crate::jobs;
 /// Cap on the GUI's results list (F-15b).
 const MAX_RESULTS: usize = 10_000;
 
@@ -134,12 +132,7 @@ impl SearchState {
 
     /// The search range (F-15): the selection, if requested, else the document.
     fn range_for(&self, tab: &Tab) -> std::ops::Range<u64> {
-        if self.in_selection
-            && let Some(sel) = tab.view.selection()
-        {
-            return sel;
-        }
-        0..tab.doc.len()
+        jobs::tab_range(tab, self.in_selection)
     }
 
     // ---- job starts ----

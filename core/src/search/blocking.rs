@@ -4,9 +4,10 @@ use std::ops::Range;
 
 use crate::document::Document;
 use crate::error::Result;
+use crate::job::{self, StepResult, WINDOW};
 use crate::progress::Progress;
 
-use super::{Pattern, Searcher, WINDOW};
+use super::{Pattern, Searcher};
 
 /// Next match from `from` (F-13a/b). Honours direction and wrap.
 pub fn find_next(
@@ -20,21 +21,15 @@ pub fn find_next(
 ) -> Option<Range<u64>> {
     let len = doc.len();
     let mut s = Searcher::new(pattern.clone(), range, len, from, backward, wrap);
-    progress.set_total(s.total_space());
     let m = s.pattern_len();
     let mut out = Vec::new();
-    loop {
-        let st = s.step(doc, WINDOW, &mut out);
-        progress.add_done(st.scanned);
-        if !out.is_empty() {
-            // Backwards, the one closest to the cursor is the window's last.
-            let at = if backward { *out.last().unwrap() } else { out[0] };
-            return Some(at..at + m);
-        }
-        if st.finished || progress.is_cancelled() {
-            return None;
-        }
-    }
+    job::sweep(progress, s.total_space(), |budget| {
+        let st = s.step(doc, budget, &mut out);
+        StepResult { finished: st.finished || !out.is_empty(), ..st }
+    });
+    // Backwards, the one closest to the cursor is the window's last.
+    let at = if backward { *out.last()? } else { *out.first()? };
+    Some(at..at + m)
 }
 
 /// F-15b — All matches (non-overlapping), up to `limit`. The second value
@@ -49,19 +44,14 @@ pub fn find_all(
     let len = doc.len();
     let start = range.start;
     let mut s = Searcher::new(pattern.clone(), range, len, start, false, false);
-    progress.set_total(s.total_space());
     let mut out = Vec::new();
-    loop {
-        let st = s.step(doc, WINDOW, &mut out);
-        progress.add_done(st.scanned);
-        if out.len() >= limit {
-            out.truncate(limit);
-            return (out, true);
-        }
-        if st.finished || progress.is_cancelled() {
-            return (out, false);
-        }
-    }
+    job::sweep(progress, s.total_space(), |budget| {
+        let st = s.step(doc, budget, &mut out);
+        StepResult { finished: st.finished || out.len() >= limit, ..st }
+    });
+    let truncated = out.len() >= limit;
+    out.truncate(limit);
+    (out, truncated)
 }
 
 /// Replaces one match as **a single** undo transaction: an equal length is an

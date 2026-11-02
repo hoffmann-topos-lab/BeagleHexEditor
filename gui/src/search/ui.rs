@@ -1,8 +1,9 @@
 //! The search bar and the results list.
 
-use eframe::egui::{self, Key, ProgressBar, TextEdit};
+use eframe::egui::{self, Key, TextEdit};
 
 use crate::app::Tab;
+use crate::jobs;
 
 use super::{Mode, SearchState, TYPED_KINDS};
 
@@ -76,10 +77,7 @@ impl SearchState {
 
             ui.horizontal(|ui| {
                 if let Some(job) = &self.job {
-                    ui.add(ProgressBar::new(job.progress.fraction()).desired_width(180.0));
-                    if ui.button("Cancel").clicked() {
-                        job.progress.cancel();
-                    }
+                    jobs::progress_bar(ui, &job.progress, 180.0);
                 } else {
                     if ui.button("◀ Previous").clicked() {
                         self.start_next(tabs, *active, true);
