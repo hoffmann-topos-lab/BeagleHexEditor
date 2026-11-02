@@ -9,7 +9,7 @@
 
 use eframe::egui::{self, Color32, ComboBox, RichText, TextEdit};
 use hexed_core::recipe::{self, DEFAULT_CAP};
-use hexed_core::{Progress, Recipe};
+use hexed_core::{Progress, Recipe, hex};
 
 use crate::app::Tab;
 
@@ -235,21 +235,15 @@ impl RecipeState {
 }
 
 fn run(doc: &mut hexed_core::Document, range: std::ops::Range<u64>, spec: &str) -> Result<Vec<u8>, String> {
-    let recipe = Recipe::parse(spec).map_err(|e| e.to_string())?;
+    let recipe = Recipe::parse(spec)?;
     recipe::run(doc, range, &recipe, DEFAULT_CAP, &Progress::new()).map_err(|e| e.to_string())
 }
 
 fn preview_text(bytes: &[u8], as_hex: bool) -> String {
     let shown = &bytes[..bytes.len().min(PREVIEW_BYTES)];
     let mut s = if as_hex {
-        let mut h = String::with_capacity(shown.len() * 3);
-        for (i, b) in shown.iter().enumerate() {
-            if i > 0 {
-                h.push(if i % 16 == 0 { '\n' } else { ' ' });
-            }
-            h.push_str(&format!("{b:02x}"));
-        }
-        h
+        let rows: Vec<String> = shown.chunks(16).map(|r| hex::encode_with(r, " ")).collect();
+        rows.join("\n")
     } else {
         String::from_utf8_lossy(shown).into_owned()
     };

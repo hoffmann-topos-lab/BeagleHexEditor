@@ -5,7 +5,7 @@
 use hexed_core::recipe::{self, DEFAULT_CAP};
 use hexed_core::{Progress, Recipe};
 
-use crate::args::{flag, parse_size, search_range, split_flags};
+use crate::args::{parse_size, split_flags};
 
 use super::open_doc;
 
@@ -15,19 +15,19 @@ pub(crate) fn cmd_recipe(args: &[String]) -> Result<(), String> {
     let spec = pos
         .get(1)
         .ok_or("missing recipe. Example: hexed recipe payload.bin \"from-hex | gunzip\"")?;
-    let recipe = Recipe::parse(spec).map_err(|e| e.to_string())?;
+    let recipe = Recipe::parse(spec)?;
 
-    let cap = match flag(&flags, "cap") {
+    let cap = match flags.get("cap") {
         Some(s) => parse_size(s)?,
         None => DEFAULT_CAP,
     };
 
     let mut doc = open_doc(path)?;
-    let range = search_range(&flags, doc.len())?;
+    let range = flags.range(doc.len())?;
     let output =
-        recipe::run(&mut doc, range, &recipe, cap, &Progress::new()).map_err(|e| e.to_string())?;
+        recipe::run(&mut doc, range, &recipe, cap, &Progress::new())?;
 
-    match flag(&flags, "o").or_else(|| flag(&flags, "out")) {
+    match flags.out() {
         Some(out) => {
             std::fs::write(out, &output).map_err(|e| e.to_string())?;
             eprintln!("hexed: {} step(s), {} byte(s) → {out}", recipe.ops.len(), output.len());

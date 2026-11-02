@@ -26,13 +26,12 @@ use std::ops::Range;
 use crate::document::Document;
 use crate::error::{Error, ErrorKind, Result};
 use crate::hash::Algo;
+use crate::job::{self, RangeCursor, StepResult};
 use crate::progress::Progress;
 
 pub use compress::MAX_OUTPUT;
 pub use crypto::AesMode;
 
-/// Read window per cooperative step.
-const WINDOW: u64 = 1 << 20;
 
 /// Default ceiling on the selection a recipe will materialize (256 MiB). A
 /// larger range is refused, not truncated — narrow it, or raise the cap.
@@ -151,8 +150,7 @@ impl Recipe {
 /// applies the recipe to what it gathered.
 pub struct RecipeJob {
     recipe: Recipe,
-    range: Range<u64>,
-    pos: u64,
+    cursor: RangeCursor,
     buf: Vec<u8>,
 }
 
@@ -160,9 +158,8 @@ impl RecipeJob {
     /// Fails when the selection is larger than `cap` — a recipe materializes its
     /// input, so an unbounded range would be an unbounded allocation.
     pub fn new(recipe: Recipe, range: Range<u64>, doc_len: u64, cap: u64) -> Result<Self> {
-        let start = range.start.min(doc_len);
-        let end = range.end.min(doc_len).max(start);
-        let len = end - start;
+        let cursor = RangeCursor::new(range, doc_len);
+        let len = cursor.total();
         if len > cap {
             return Err(Error::new(
                 ErrorKind::Io,
@@ -172,35 +169,29 @@ impl RecipeJob {
                 ),
             ));
         }
-        Ok(Self { recipe, range: start..end, pos: start, buf: Vec::with_capacity(len as usize) })
+        Ok(Self { recipe, cursor, buf: Vec::with_capacity(len as usize) })
     }
 
     pub fn total(&self) -> u64 {
-        self.range.end - self.range.start
+        self.cursor.total()
     }
 
     /// True once the whole selection has been read into the buffer.
     pub fn is_read_done(&self) -> bool {
-        self.pos >= self.range.end
+        self.cursor.is_done()
     }
 
     /// Reads up to `budget` bytes of the selection. An unreadable block aborts
     /// (transforming invented zeros would be a silent lie — same rule as export).
-    pub fn step(&mut self, doc: &mut Document, budget: u64) -> Result<u64> {
+    pub fn step(&mut self, doc: &mut Document, budget: u64) -> Result<StepResult> {
         if self.is_read_done() {
-            return Ok(0);
+            return Ok(StepResult::DONE);
         }
-        let n = (self.range.end - self.pos).min(budget.clamp(1, WINDOW));
-        let read = doc.read(self.pos, n as usize);
-        if !read.is_clean() {
-            return Err(Error::new(
-                ErrorKind::BadBlock,
-                format!("unreadable block at {:#x}; recipe aborted", read.unreadable[0].start),
-            ));
-        }
-        self.buf.extend_from_slice(&read.data);
-        self.pos += n;
-        Ok(n)
+        let n = self.cursor.next_len(budget, 1);
+        let data = job::read_clean(doc, self.cursor.pos(), n, "recipe")?;
+        self.buf.extend_from_slice(&data);
+        self.cursor.advance(n);
+        Ok(StepResult { finished: self.is_read_done(), scanned: n })
     }
 
     /// Applies the recipe to the gathered selection.
@@ -219,13 +210,6 @@ pub fn run(
     progress: &Progress,
 ) -> Result<Vec<u8>> {
     let mut job = RecipeJob::new(recipe.clone(), range, doc.len(), cap)?;
-    progress.set_total(job.total());
-    while !job.is_read_done() {
-        if progress.is_cancelled() {
-            return Err(Error::new(ErrorKind::Io, "cancelled"));
-        }
-        let n = job.step(doc, WINDOW)?;
-        progress.add_done(n);
-    }
+    job::run(progress, job.total(), |budget| job.step(doc, budget))?;
     job.finish()
 }

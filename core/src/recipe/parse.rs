@@ -103,26 +103,10 @@ fn u32_arg(args: &[&str], name: &str) -> Result<u32> {
 
 /// Decimal or `0x`-hex integer.
 fn num(s: &str) -> Result<u64> {
-    let t = s.trim();
-    let r = match t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
-        Some(h) => u64::from_str_radix(h, 16),
-        None => t.parse(),
-    };
-    r.map_err(|_| bad(format!("invalid number: {s}")))
+    crate::hex::parse_u64(s).ok_or_else(|| bad(format!("invalid number: {s}")))
 }
 
-/// A hex byte string (whitespace tolerated), like the CLI's `parse_hex`.
+/// A hex byte string (whitespace tolerated).
 fn hex(s: &str) -> Result<Vec<u8>> {
-    let clean: String = s.chars().filter(|c| !c.is_whitespace()).collect();
-    if !clean.len().is_multiple_of(2) {
-        return Err(bad(format!("hex value with an odd number of digits: {s}")));
-    }
-    clean
-        .as_bytes()
-        .chunks(2)
-        .map(|p| {
-            u8::from_str_radix(std::str::from_utf8(p).unwrap(), 16)
-                .map_err(|_| bad(format!("invalid hex byte: {}", std::str::from_utf8(p).unwrap())))
-        })
-        .collect()
+    crate::hex::parse_bytes(s).ok_or_else(|| bad(format!("invalid hex value: {s}")))
 }
