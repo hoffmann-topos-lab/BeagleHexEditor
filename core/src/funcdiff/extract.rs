@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::Function;
 use crate::disasm::{DisArch, Flow, decode_one};
 use crate::document::Document;
-use crate::error::{Error, ErrorKind, Result};
+use crate::error::{Error, Result};
 use crate::format::{BinaryInfo, SymKind};
 use crate::progress::Progress;
 
@@ -48,7 +48,7 @@ pub(super) fn functions(
     let mut out = Vec::with_capacity(syms.len());
     for (name, va) in syms {
         if progress.is_cancelled() {
-            return Err(Error::new(ErrorKind::Io, "cancelled"));
+            return Err(Error::cancelled());
         }
         progress.add_done(1);
         let seq = walk(arch, &regions, va);

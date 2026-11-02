@@ -120,7 +120,7 @@ impl BindiffState {
     fn navigate(&self, tabs: &mut [Tab], active: &mut usize, ti: usize, va: u64) {
         let Some((a, _)) = self.for_pair else { return };
         let sections = if ti == a { &self.sections_a } else { &self.sections_b };
-        let Some(off) = va_offset(sections, va) else { return };
+        let Some(off) = format::va_to_file(sections, va, 1).map(|r| r.start) else { return };
         let Some(tab) = tabs.get_mut(ti) else { return };
         *active = ti;
         let len = tab.doc.len();
@@ -218,15 +218,9 @@ fn two_mut<T>(items: &mut [T], i: usize, j: usize) -> Option<(&mut T, &mut T)> {
     }
 }
 
-fn va_offset(sections: &[Section], va: u64) -> Option<u64> {
-    let s = sections.iter().find(|s| !s.file.is_empty() && va >= s.vaddr && va < s.vaddr + s.size)?;
-    Some(s.file.start + (va - s.vaddr))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hexed_core::format::Perms;
 
     #[test]
     fn two_mut_returns_the_requested_pair_in_order() {
@@ -245,18 +239,5 @@ mod tests {
         let mut v = vec![1, 2];
         assert!(two_mut(&mut v, 0, 0).is_none());
         assert!(two_mut(&mut v, 0, 5).is_none());
-    }
-
-    #[test]
-    fn va_offset_maps_through_the_section() {
-        let secs = [Section {
-            name: ".text".into(),
-            file: 0x400..0x800,
-            vaddr: 0x1000,
-            size: 0x400,
-            perms: Perms { r: true, w: false, x: true },
-        }];
-        assert_eq!(va_offset(&secs, 0x1040), Some(0x440));
-        assert_eq!(va_offset(&secs, 0x9999), None);
     }
 }
