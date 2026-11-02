@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use hexed_core::disasm::{self, DisasmMode, DisasmOptions, Insn, Listing};
 use hexed_core::{BinaryInfo, format};
 
-use crate::args::{flag, parse_u64, split_flags};
+use crate::args::split_flags;
 
 use super::open_doc;
 
@@ -16,25 +16,19 @@ pub(crate) fn cmd_disasm(args: &[String]) -> Result<(), String> {
     let (pos, flags) = split_flags(args, &["linear"])?;
     let path = pos.first().ok_or("missing file")?;
     let mut doc = open_doc(path)?;
-    let info = format::parse(&mut doc).map_err(|e| e.to_string())?;
+    let info = format::parse(&mut doc)?;
 
-    let mode = if flag(&flags, "linear").is_some() { DisasmMode::Linear } else { DisasmMode::Recursive };
-    let extra_seeds = match flag(&flags, "from") {
-        Some(s) => vec![parse_u64(s)?],
-        None => Vec::new(),
-    };
-    let limit = match flag(&flags, "limit") {
-        Some(s) => parse_u64(s)? as usize,
-        None => 4096,
-    };
+    let mode = if flags.has("linear") { DisasmMode::Linear } else { DisasmMode::Recursive };
+    let extra_seeds: Vec<u64> = flags.u64("from")?.into_iter().collect();
+    let limit = flags.usize_or("limit", 4096)?;
     let opts = DisasmOptions {
         mode,
-        section: flag(&flags, "section").map(str::to_string),
+        section: flags.get("section").map(str::to_string),
         extra_seeds,
         cap: CAP,
     };
 
-    let job = disasm::build(&mut doc, &info, &opts).map_err(|e| e.to_string())?;
+    let job = disasm::build(&mut doc, &info, &opts)?;
     let listing = job.run();
 
     println!(
@@ -64,7 +58,7 @@ fn print_listing(listing: &Listing, info: &BinaryInfo, limit: usize) {
         println!(
             "  {:#010x}:  {:<21}  {}{}",
             insn.address,
-            hex_bytes(&insn.bytes),
+            hexed_core::hex::encode_with(&insn.bytes, " "),
             insn.text,
             annotate_target(insn, &symbols)
         );
@@ -88,10 +82,6 @@ fn annotate_target(insn: &Insn, symbols: &BTreeMap<u64, String>) -> String {
         },
         None => String::new(),
     }
-}
-
-fn hex_bytes(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ")
 }
 
 fn symbol_map(info: &BinaryInfo) -> BTreeMap<u64, String> {

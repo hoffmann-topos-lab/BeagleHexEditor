@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::ops::Range;
 
 use eframe::egui::{self, Color32, ComboBox, RichText, Sense, TextStyle};
-use hexed_core::{BinaryInfo, DisasmMode, DisasmOptions, Insn, Section, format};
+use hexed_core::{BinaryInfo, DisasmMode, DisasmOptions, Insn, format, hex};
 
 use crate::app::Tab;
 
@@ -200,7 +200,7 @@ fn build(
     recursive: bool,
     section: &SectionChoice,
 ) -> Result<Rendered, String> {
-    let info = format::parse(doc).map_err(|e| e.to_string())?;
+    let info = format::parse(doc)?;
     let opts = DisasmOptions {
         mode: if recursive { DisasmMode::Recursive } else { DisasmMode::Linear },
         section: match section {
@@ -210,7 +210,7 @@ fn build(
         extra_seeds: Vec::new(),
         cap: CAP,
     };
-    let mut job = hexed_core::disasm::build(doc, &info, &opts).map_err(|e| e.to_string())?;
+    let mut job = hexed_core::disasm::build(doc, &info, &opts)?;
 
     // Bound the sweep: stop after MAX_INSNS decoded instructions.
     let mut scanned = 0u64;
@@ -237,13 +237,13 @@ fn build(
         let line = format!(
             "{:#010x}:  {:<21}  {}{}",
             insn.address,
-            hex_bytes(&insn.bytes),
+            hex::encode_with(&insn.bytes, " "),
             insn.text,
             annotate(insn, &symbols)
         );
         entries.push(Entry::Insn {
             line,
-            file: va_to_file(&info.sections, insn.address, insn.len as u64),
+            file: format::va_to_file(&info.sections, insn.address, insn.len as u64),
         });
     }
     if truncated {
@@ -288,58 +288,5 @@ fn annotate(insn: &Insn, symbols: &BTreeMap<u64, String>) -> String {
             None => format!("        -> {t:#x}"),
         },
         None => String::new(),
-    }
-}
-
-fn hex_bytes(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ")
-}
-
-/// Maps a virtual address back to its file byte range through the section table.
-fn va_to_file(sections: &[Section], va: u64, len: u64) -> Option<Range<u64>> {
-    let s = sections.iter().find(|s| !s.file.is_empty() && va >= s.vaddr && va < s.vaddr + s.size)?;
-    let off = s.file.start + (va - s.vaddr);
-    let end = (off + len).min(s.file.end).max(off);
-    Some(off..end)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use hexed_core::format::Perms;
-
-    fn text_section() -> Section {
-        Section {
-            name: ".text".into(),
-            file: 0x400..0x800,
-            vaddr: 0x1000,
-            size: 0x400,
-            perms: Perms { r: true, w: false, x: true },
-        }
-    }
-
-    #[test]
-    fn va_maps_to_the_right_file_offset() {
-        let secs = [text_section()];
-        // VA 0x1000 is the section start → file 0x400; a 4-byte insn spans 0x400..0x404.
-        assert_eq!(va_to_file(&secs, 0x1000, 4), Some(0x400..0x404));
-        // 0x40 into the section.
-        assert_eq!(va_to_file(&secs, 0x1040, 4), Some(0x440..0x444));
-        // A VA outside every section has no file bytes.
-        assert_eq!(va_to_file(&secs, 0x9999, 4), None);
-        // The end is clamped to the section's file range, never past it.
-        assert_eq!(va_to_file(&secs, 0x13ff, 8), Some(0x7ff..0x800));
-    }
-
-    #[test]
-    fn a_bss_style_section_with_no_file_bytes_is_skipped() {
-        let bss = Section {
-            name: ".bss".into(),
-            file: 0x800..0x800, // empty file range
-            vaddr: 0x2000,
-            size: 0x100,
-            perms: Perms { r: true, w: true, x: false },
-        };
-        assert_eq!(va_to_file(&[bss], 0x2000, 4), None);
     }
 }

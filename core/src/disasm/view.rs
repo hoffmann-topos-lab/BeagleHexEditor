@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::document::Document;
 use crate::error::{Error, ErrorKind, Result};
 use crate::format::{BinaryInfo, SymKind};
-use crate::search::StepResult;
+use crate::job::StepResult;
 
 use super::{DisArch, Flow, Insn, decode_one};
 
