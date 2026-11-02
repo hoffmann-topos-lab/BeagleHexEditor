@@ -16,7 +16,7 @@
 //! falls back to `$SUDO_UID`). The daemon fails closed if it cannot determine
 //! the allowed UID.
 
-use std::ffi::CString;
+use std::ffi::{CString, c_char};
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
 use std::os::unix::fs::{FileExt, PermissionsExt};
@@ -33,7 +33,9 @@ use hexed_helper_proto::{MAX_CHUNK, Request, Response, WireError};
 // Linux port must replace it with `getsockopt(SO_PEERCRED)`; do NOT stub it.
 unsafe extern "C" {
     fn getpeereid(fd: i32, euid: *mut u32, egid: *mut u32) -> i32;
-    fn chown(path: *const i8, owner: u32, group: u32) -> i32;
+    // `c_char` is `i8` on macOS/x86 but `u8` on aarch64; matching `CString::as_ptr`
+    // keeps this correct on every target (it was hard-coded to `*const i8`).
+    fn chown(path: *const c_char, owner: u32, group: u32) -> i32;
 }
 
 fn main() -> std::process::ExitCode {

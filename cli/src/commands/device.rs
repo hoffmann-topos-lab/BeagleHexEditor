@@ -2,11 +2,11 @@
 
 use hexed_core::{Progress, disks};
 
-use crate::args::{flag, parse_u64, split_flags};
+use crate::args::split_flags;
 
 /// F-48 — List disks and partitions (needs no privilege).
 pub(crate) fn cmd_disks(_args: &[String]) -> Result<(), String> {
-    let list = disks::enumerate().map_err(|e| e.to_string())?;
+    let list = disks::enumerate()?;
     if list.is_empty() {
         eprintln!("hexed: no disks reported");
         return Ok(());
@@ -40,20 +40,17 @@ pub(crate) fn cmd_shred(args: &[String]) -> Result<(), String> {
     if path.starts_with("/dev/") {
         return Err("refusing to shred a device node".into());
     }
-    let passes = match flag(&flags, "passes") {
-        Some(s) => parse_u64(s)?.clamp(1, 35) as u32,
-        None => 1,
-    };
-    let remove = flag(&flags, "keep").is_none();
+    let passes = flags.u64_or("passes", 1)?.clamp(1, 35) as u32;
+    let remove = !flags.has("keep");
     let fate = if remove { "overwritten and deleted" } else { "overwritten in place" };
 
     eprintln!("hexed: {}", hexed_core::shred::WARNING);
-    if flag(&flags, "yes").is_none() {
+    if !flags.has("yes") {
         return Err(format!("refusing without --yes ({path} would be {fate})"));
     }
 
     hexed_core::shred_file(std::path::Path::new(path), passes, remove, &Progress::new())
-        .map_err(|e| e.to_string())?;
+        ?;
     eprintln!("hexed: {path} {fate} ({passes} pass(es))");
     Ok(())
 }

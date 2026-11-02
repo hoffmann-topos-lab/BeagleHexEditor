@@ -11,7 +11,7 @@ use std::fs::OpenOptions;
 use std::os::unix::fs::FileExt;
 use std::path::Path;
 
-use crate::error::{Error, ErrorKind, Result};
+use crate::error::{Error, Result};
 use crate::progress::Progress;
 use crate::rng::Rng;
 
@@ -37,7 +37,7 @@ pub fn shred_file(path: &Path, passes: u32, remove: bool, progress: &Progress) -
         let mut off = 0u64;
         while off < size {
             if progress.is_cancelled() {
-                return Err(Error::new(ErrorKind::Io, "cancelled"));
+                return Err(Error::cancelled());
             }
             let n = ((size - off) as usize).min(CHUNK);
             rng.fill(&mut buf[..n]);
