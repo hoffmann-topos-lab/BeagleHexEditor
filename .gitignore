@@ -10,3 +10,9 @@
 CLAUDE.md
 funcionalidades.md
 testes-manuais.md
+
+# Local-only test suite and harness — not published to GitHub.
+# tests-local/ holds the CLI integration tests and the Docker/Debian Linux
+# harness; cli/tests is a symlink into it so `cargo test` still finds them.
+/tests-local/
+/cli/tests
